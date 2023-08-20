@@ -1,19 +1,50 @@
 #!/bin/bash
 
+# 检查是否具有足够的权限
+if [ "$(id -u)" != "0" ]; then
+    echo "需要管理员权限，请使用sudo运行此脚本。"
+    exit 1
+fi
+
+# 获取操作系统信息
+get_os_info() {
+    # 判断是否是Debian/Ubuntu
+    if [ -f /etc/debian_version ]; then
+        echo "debian"
+    # 判断是否是CentOS
+    elif [ -f /etc/centos-release ]; then
+        echo "centos"
+    else
+        echo "unknown"
+    fi
+}
+
+
 # 安装必要组件
 install_components() {
     echo "正在安装必要组件..."
 
-    # 检查是否具有足够的权限
-    if [ "$(id -u)" != "0" ]; then
-        echo "需要管理员权限来安装必要组件。请使用sudo运行脚本。"
-        exit 1
-    fi
+    # 获取操作系统信息
+    os_type=$(get_os_info)
 
-    # 更新软件包列表，如果失败则退出
-    apt -y update || { echo "更新软件包列表失败"; exit 1; }
-    # 安装组件，如果失败则退出
-    apt -y install docker.io docker-compose fail2ban vim curl || { echo "安装组件失败"; exit 1; }
+    case $os_type in
+        debian)
+            # 更新软件包列表，如果失败则退出
+            apt -y update || { echo "更新软件包列表失败"; exit 1; }
+            # 安装组件，如果失败则退出
+            apt -y install docker.io docker-compose fail2ban vim curl || { echo "安装组件失败"; exit 1; }
+            ;;
+        centos)
+            # 更新软件包列表，如果失败则退出
+            yum -y update || { echo "更新软件包列表失败"; exit 1; }
+            # 安装组件，如果失败则退出
+            yum -y install docker docker-compose fail2ban vim curl || { echo "安装组件失败"; exit 1; }
+            ;;
+        *)
+            echo "无法确定操作系统类型，无法安装组件。"
+            exit 1
+            ;;
+    esac
 
     echo "关键组件安装成功。"
 }
@@ -22,12 +53,6 @@ install_components() {
 add_public_key() {
     echo "请输入公钥："
     read public_key
-
-    # 检查是否具有足够的权限
-    if [ "$(id -u)" != "0" ]; then
-        echo "需要管理员权限来添加公钥。请使用sudo运行脚本。"
-        exit 1
-    fi
 
     # 检查公钥是否为空
     if [ -z "$public_key" ]; then
@@ -62,12 +87,6 @@ add_public_key() {
 # 关闭SSH密码登录
 disable_ssh_password_login() {
     echo "正在关闭SSH密码登录..."
-
-    # 检查是否具有足够的权限
-    if [ "$(id -u)" != "0" ]; then
-        echo "需要管理员权限来关闭SSH密码登录。请使用sudo运行脚本。"
-        exit 1
-    fi
 
     # 备份原始sshd_config文件
     cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
@@ -182,17 +201,17 @@ set_virtual_memory() {
 
     echo "正在设置虚拟内存..."
 
-    # 检查是否具有足够的权限
-    if [ "$(id -u)" != "0" ]; then
-        echo "需要管理员权限来设置虚拟内存。请使用sudo运行脚本。"
-        exit 1
-    fi
-
     # 检查是否已经存在交换文件
     if [ -e "/swap" ]; then
         echo "已经存在交换文件。删除现有的交换文件..."
         swapoff /swap
         rm -rf /swap
+    fi
+
+    if [ -e "/swapfile" ]; then
+        echo "已经存在交换文件。删除现有的交换文件..."
+        swapoff /swapfile
+        rm -rf /swapfile
     fi
 
     # 将单位转换为KB
@@ -284,16 +303,36 @@ optimize_kernel_parameters() {
     fi
 
     # 添加net.ipv4.tcp_slow_start_after_idle=0和net.ipv4.tcp_notsent_lowat=16384到/etc/sysctl.conf
-    echo "net.ipv4.tcp_slow_start_after_idle=0" >> /etc/sysctl.conf
-    echo "net.ipv4.tcp_notsent_lowat=16384" >> /etc/sysctl.conf
+    if ! grep -q "^net.ipv4.tcp_slow_start_after_idle" /etc/sysctl.conf; then
+        echo "net.ipv4.tcp_slow_start_after_idle=0" >> /etc/sysctl.conf
+    else
+        sed -i 's/^net.ipv4.tcp_slow_start_after_idle=.*/net.ipv4.tcp_slow_start_after_idle=0/' /etc/sysctl.conf
+    fi
+
+    if ! grep -q "^net.ipv4.tcp_notsent_lowat" /etc/sysctl.conf; then
+        echo "net.ipv4.tcp_notsent_lowat=16384" >> /etc/sysctl.conf
+    else
+        sed -i 's/^net.ipv4.tcp_notsent_lowat=.*/net.ipv4.tcp_notsent_lowat=16384/' /etc/sysctl.conf
+    fi
+
+    # 添加net.core.default_qdisc=fq和net.ipv4.tcp_congestion_control=bbr到/etc/sysctl.conf
+    if ! grep -q "^net.core.default_qdisc=fq" /etc/sysctl.conf; then
+        echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
+    fi
+
+    if ! grep -q "^net.ipv4.tcp_congestion_control=bbr" /etc/sysctl.conf; then
+        echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
+    fi
 
     # 重新加载系统设置
     sysctl -p
 
     # 检查修改是否成功
     if grep -q "^net.ipv4.tcp_slow_start_after_idle=0" /etc/sysctl.conf &&
-       grep -q "^net.ipv4.tcp_notsent_lowat=16384" /etc/sysctl.conf; then
-        echo "内核参数优化成功。"
+       grep -q "^net.ipv4.tcp_notsent_lowat=16384" /etc/sysctl.conf &&
+       grep -q "^net.core.default_qdisc=fq" /etc/sysctl.conf &&
+       grep -q "^net.ipv4.tcp_congestion_control=bbr" /etc/sysctl.conf; then
+       echo "内核参数优化成功。"
     else
         echo "内核参数优化失败，请检查配置文件。"
         # 恢复备份文件
@@ -301,6 +340,157 @@ optimize_kernel_parameters() {
         exit 1
     fi
 }
+
+
+install_xanmod_kernel() {
+    echo "当前内核版本：$(uname -r)"
+
+    # 检查 CPU 支持的指令集级别
+    cpu_support_info=$(/usr/bin/awk -f <(wget -qO - https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/check_x86-64_psabi.sh))
+    if [[ $cpu_support_info == "CPU supports x86-64-v"* ]]; then
+        cpu_support_level=${cpu_support_info#CPU supports x86-64-v}
+        echo "你的CPU支持XanMod内核，级别为 x86-64-v$cpu_support_level"
+    else
+        echo "你的CPU不受XanMod内核支持，无法安装。"
+        exit 1
+    fi
+
+    read -p "是否继续下载并安装XanMod内核？ (y/n): " continue_choice
+
+    case $continue_choice in
+        y|Y)
+            echo "正在从GitHub下载XanMod内核..."
+            echo "XanMod内核官网 https://xanmod.org"
+            echo "内核来自 https://sourceforge.net/projects/xanmod/files/releases/lts/"
+
+            # 创建临时文件夹
+            temp_folder=$(mktemp -d)
+            cd $temp_folder
+
+            # 根据CPU支持级别选择下载的内核
+            case $cpu_support_level in
+                2)
+                    headers_file="linux-headers-6.1.46-x64v2-xanmod1_6.1.46-x64v2-xanmod1-0.20230816.g11dcd23_amd64.deb"
+                    image_file="linux-image-6.1.46-x64v2-xanmod1_6.1.46-x64v2-xanmod1-0.20230816.g11dcd23_amd64.deb"
+                    headers_md5="45c85d1bcb07bf171006a3e34b804db0"
+                    image_md5="63c359cef963a2e9f1b7181829521fc3"
+                    ;;
+                3)
+                    headers_file="linux-headers-6.1.46-x64v3-xanmod1_6.1.46-x64v3-xanmod1-0.20230816.g11dcd23_amd64.deb"
+                    image_file="linux-image-6.1.46-x64v3-xanmod1_6.1.46-x64v3-xanmod1-0.20230816.g11dcd23_amd64.deb"
+                    headers_md5="6ae3e253a8aeabd80458df4cb4da70cf"
+                    image_md5="d6ea43a2a6686b86e0ac23f800eb95a4"
+                    ;;
+                4)
+                    headers_file="linux-headers-6.1.46-x64v4-xanmod1_6.1.46-x64v4-xanmod1-0.20230816.g11dcd23_amd64.deb"
+                    image_file="linux-image-6.1.46-x64v4-xanmod1_6.1.46-x64v4-xanmod1-0.20230816.g11dcd23_amd64.deb"
+                    headers_md5="9c41a4090a8068333b7dd56b87dd01df"
+                    image_md5="7d30eef4b9094522fc067dc19f7cc92e"
+                    ;;
+                *)
+                    echo "你的CPU不受XanMod内核支持，无法安装。"
+                    exit 1
+                    ;;
+            esac
+
+            # 下载内核文件
+            wget "https://github.com/SuperNG6/linux-setup.sh/releases/download/0816/$headers_file"
+            wget "https://github.com/SuperNG6/linux-setup.sh/releases/download/0816/$image_file"
+
+            # 校验 MD5 值
+            if [ "$(md5sum $headers_file | awk '{print $1}')" != "$headers_md5" ]; then
+                echo "下载的 $headers_file MD5 值不匹配，可能文件已被篡改。"
+                exit 1
+            fi
+
+            if [ "$(md5sum $image_file | awk '{print $1}')" != "$image_md5" ]; then
+                echo "下载的 $image_file MD5 值不匹配，可能文件已被篡改。"
+                exit 1
+            fi
+
+            # 安装内核
+            dpkg -i linux-image-*xanmod*.deb linux-headers-*xanmod*.deb
+
+            # 检查安装是否成功
+            if [ $? -eq 0 ]; then
+                echo "XanMod内核安装成功。"
+                read -p "是否需要更新grub引导配置？ (y/n): " update_grub_choice
+
+                case $update_grub_choice in
+                    y|Y)
+                        update-grub
+                        echo "Grub引导配置已更新，重启后生效。"
+                        echo "若需要开启BBRv3，请重启后执行脚本-内核优化选项"
+                        ;;
+                    n|N)
+                        echo "跳过Grub引导配置更新。"
+                        ;;
+                    *)
+                        echo "无效的选项，跳过Grub引导配置更新。"
+                        ;;
+                esac
+            else
+                echo "XanMod内核安装失败。"
+            fi
+
+            # 清理下载的deb文件
+            rm -f linux-image-*xanmod*.deb linux-headers-*xanmod*.deb
+            ;;
+        n|N)
+            echo "取消下载和安装XanMod内核。"
+            ;;
+        *)
+            echo "无效的选项，取消下载和安装XanMod内核。"
+            ;;
+    esac
+}
+
+# 卸载XanMod内核并恢复原有内核，并更新Grub引导配置
+uninstall_xanmod_kernel() {
+    echo "正在检查当前内核..."
+
+    # 获取当前内核的版本号
+    current_kernel_version=$(uname -r)
+
+    # 检查是否为XanMod内核
+    if [[ $current_kernel_version == *-xanmod* ]]; then
+        echo "当前内核为 XanMod 内核：$current_kernel_version"
+        echo "正在卸载XanMod内核并恢复原有内核..."
+
+        # 卸载XanMod内核
+        apt-get purge linux-image-*xanmod* linux-headers-*xanmod*
+        apt-get autoremove
+
+        # 更新Grub引导配置
+        update-grub
+
+        echo "XanMod内核已卸载并恢复原有内核。Grub引导配置已更新，重启后生效。"
+    else
+        echo "当前内核不是XanMod内核，无法执行卸载操作。"
+    fi
+}
+
+# 修改SSH端口号
+modify_ssh_port() {
+    echo "当前SSH端口号：$(grep -oP '^Port \K\d+' /etc/ssh/sshd_config)"
+
+    read -p "请输入新的SSH端口号：" new_ssh_port
+
+    # 检查输入是否为数字
+    if ! [[ "$new_ssh_port" =~ ^[0-9]+$ ]]; then
+        echo "无效的输入，请输入有效的端口号。"
+        exit 1
+    fi
+
+    # 更新sshd_config文件中的端口号
+    sed -i "s/^Port .*/Port $new_ssh_port/" /etc/ssh/sshd_config
+
+    # 重启SSH服务
+    systemctl restart sshd
+
+    echo "SSH端口号已修改为：$new_ssh_port"
+}
+
 
 # 显示操作菜单选项
 display_menu() {
@@ -312,6 +502,21 @@ display_menu() {
     echo "5. 设置虚拟内存"
     echo "6. 修改swap使用阈值"
     echo "7. 优化内核参数"
+    # 获取操作系统信息
+    os_type=$(get_os_info)
+    case $os_type in
+        debian)
+            echo "8. 下载并安装XanMod内核(BBRv3)"
+            echo "9. 卸载XanMod内核，并恢复原有内核"
+            ;;
+        centos)
+            # 在CentOS系统中不显示"下载并安装XanMod内核"、卸载XanMod内核，并恢复原有内核"选项
+            ;;
+        *)
+            echo "无法确定操作系统类型，无法添加相应选项。"
+            ;;
+    esac
+    echo "10. 修改SSH端口号"
 }
 
 # 主函数，接受选项并执行相应的脚本
@@ -345,8 +550,17 @@ main() {
             7)
                 optimize_kernel_parameters
                 ;;
+            8)
+                install_xanmod_kernel
+                ;;
+            9)
+                uninstall_xanmod_kernel
+                ;;
+            10)
+                modify_ssh_port
+                ;;
             q|Q)
-                break
+                break  # Exit the loop
                 ;;
             *)
                 echo "无效的选项，请输入合法的选项数字。"
