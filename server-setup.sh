@@ -546,89 +546,65 @@ modify_ssh_port() {
 }
 
 
-
+# 设置颜色和样式
+GREEN='\033[0;32m'
+BOLD='\033[1m'
+RESET='\033[0m'
 
 # 显示操作菜单选项
 display_menu() {
-    echo "请选择以下选项："
-    echo "1. 安装必要组件"
-    echo "2. 添加已登记设备的公钥"
-    echo "3. 关闭ssh密码登录"
-    echo "4. 添加docker工具脚本"
-    echo "5. 设置虚拟内存"
-    echo "6. 修改swap使用阈值"
-    echo "7. 优化内核参数"
-    # 获取操作系统信息
-    os_type=$(get_os_info)
-    case $os_type in
-        debian)
-            echo "8. 下载并安装XanMod内核(BBRv3)"
-            echo "9. 卸载XanMod内核，并恢复原有内核"
-            ;;
-        centos)
-            # 在CentOS系统中不显示"下载并安装XanMod内核"、卸载XanMod内核，并恢复原有内核"选项
-            ;;
-        *)
-            echo "无法确定操作系统类型，无法添加相应选项。"
-            ;;
-    esac
-    echo "10. 修改SSH端口号"
+    clear
+    echo -e "${BOLD}欢迎使用 Linux 配置工具${RESET}"
+    echo "-----------------------------------"
+    echo -e "请选择以下选项：\n"
+    echo -e "${BOLD}选项${RESET}     ${BOLD}描述${RESET}"
+    echo "-----------------------------------"
+    echo -e "${GREEN} 1${RESET}       安装必要组件"
+    echo -e "${GREEN} 2${RESET}       添加已登记设备的公钥"
+    echo -e "${GREEN} 3${RESET}       关闭 SSH 密码登录"
+    echo -e "${GREEN} 4${RESET}       添加 Docker 工具脚本"
+    echo -e "${GREEN} 5${RESET}       设置虚拟内存"
+    echo -e "${GREEN} 6${RESET}       修改 Swap 使用阈值"
+    echo -e "${GREEN} 7${RESET}       优化内核参数"
+    echo -e "${GREEN} 8${RESET}       下载并安装 XanMod 内核 (BBRv3)"
+    echo -e "${GREEN} 9${RESET}       卸载 XanMod 内核，并恢复原有内核"
+    echo -e "${GREEN}10${RESET}       修改 SSH 端口号"
+    echo "-----------------------------------"
+    echo -e "${BOLD}输入${RESET} 'q' ${BOLD}退出${RESET}"
 }
 
 # 主函数，接受选项并执行相应的脚本
 main() {
     trap cleanup EXIT
 
-    # 使用while循环允许用户返回主菜单
+    # 使用 while 循环允许用户返回主菜单
     while true; do
         display_menu
-        read -p "请输入选项数字（按q退出）：" choice
+        read -p "请输入选项数字：" choice
+        clear
 
         case $choice in
-            1)
-                install_components
-                ;;
-            2)
-                add_public_key
-                ;;
-            3)
-                disable_ssh_password_login
-                ;;
-            4)
-                add_docker_tools
-                ;;
-            5)
-                set_virtual_memory
-                ;;
-            6)
-                modify_swap_usage_threshold
-                ;;
-            7)
-                optimize_kernel_parameters
-                ;;
-            8)
-                install_xanmod_kernel
-                ;;
-            9)
-                uninstall_xanmod_kernel
-                ;;
-            10)
-                modify_ssh_port
-                ;;
-            q|Q)
-                break  # Exit the loop
-                ;;
-            *)
-                echo "无效的选项，请输入合法的选项数字。"
-                ;;
+            1) install_components ;;
+            2) add_public_key ;;
+            3) disable_ssh_password_login ;;
+            4) add_docker_tools ;;
+            5) set_virtual_memory ;;
+            6) modify_swap_usage_threshold ;;
+            7) optimize_kernel_parameters ;;
+            8) install_xanmod_kernel ;;
+            9) uninstall_xanmod_kernel ;;
+            10) modify_ssh_port ;;
+            q|Q) break ;;
+            *) echo -e "${BOLD}${GREEN}无效的选项，请输入合法的选项数字。${RESET}" ;;
         esac
+        read -p "按 Enter 键继续..."
     done
+    echo -e "${BOLD}感谢使用本脚本！${RESET}"
 }
 
 # 清理函数，在脚本退出时执行
 cleanup() {
-    # 这里可以添加一些清理操作，如还原临时更改等
-    echo "正在退出脚本..."
+    echo -e "正在退出脚本..."
 }
 
 main "$@"
