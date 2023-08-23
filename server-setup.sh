@@ -520,7 +520,7 @@ modify_ssh_port() {
     current_port=$(grep -oP '^Port \K\d+' /etc/ssh/sshd_config)
 
     if [ -z "$current_port" ]; then
-        echo "当前SSH端口号未设置（被注释，可能是默认22端口），请输入要设置的新SSH端口号："
+        echo "当前SSH端口号未设置（被注释），请输入要设置的新SSH端口号："
     else
         echo "当前SSH端口号：$current_port，请输入新的SSH端口号："
     fi
@@ -534,7 +534,7 @@ modify_ssh_port() {
 
     if [ -z "$current_port" ]; then
         # 添加新的端口号配置
-        echo "Port $new_port" >> /etc/ssh/sshd_config
+        sed -i "/^#Port/a Port $new_port" /etc/ssh/sshd_config
     else
         # 更新现有的端口号配置
         sed -i "s/^Port .*/Port $new_port/" /etc/ssh/sshd_config
@@ -544,6 +544,7 @@ modify_ssh_port() {
 
     echo "SSH端口号已修改为：$new_port"
 }
+
 
 
 
