@@ -517,24 +517,34 @@ uninstall_xanmod_kernel() {
 
 # 修改SSH端口号
 modify_ssh_port() {
-    echo "当前SSH端口号：$(grep -oP '^Port \K\d+' /etc/ssh/sshd_config)"
+    current_port=$(grep -oP '^Port \K\d+' /etc/ssh/sshd_config)
 
-    read -p "请输入新的SSH端口号：" new_ssh_port
+    if [ -z "$current_port" ]; then
+        echo "当前SSH端口号未设置（被注释，可能是默认22端口），请输入要设置的新SSH端口号："
+    else
+        echo "当前SSH端口号：$current_port，请输入新的SSH端口号："
+    fi
 
-    # 检查输入是否为数字
-    if ! [[ "$new_ssh_port" =~ ^[0-9]+$ ]]; then
+    read -p "新SSH端口号：" new_port
+
+    if ! [[ "$new_port" =~ ^[0-9]+$ ]]; then
         echo "无效的输入，请输入有效的端口号。"
         exit 1
     fi
 
-    # 更新sshd_config文件中的端口号
-    sed -i "s/^Port .*/Port $new_ssh_port/" /etc/ssh/sshd_config
+    if [ -z "$current_port" ]; then
+        # 添加新的端口号配置
+        echo "Port $new_port" >> /etc/ssh/sshd_config
+    else
+        # 更新现有的端口号配置
+        sed -i "s/^Port .*/Port $new_port/" /etc/ssh/sshd_config
+    fi
 
-    # 重启SSH服务
     systemctl restart sshd
 
-    echo "SSH端口号已修改为：$new_ssh_port"
+    echo "SSH端口号已修改为：$new_port"
 }
+
 
 
 # 显示操作菜单选项
