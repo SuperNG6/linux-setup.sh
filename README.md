@@ -62,10 +62,17 @@ CentOS请自测，已做兼容处理，未测试，并且不支持XanMod内核
 ## 使用方法
 
 1. 使用终端进入到的Linux系统。
-2. 下载脚本文件：
-
+2. 运行脚本：
+   ```bash
+   /bin/bash <(wget -qO - bit.ly/ls-set)
+   ```
+   或
    ```bash
    /bin/bash <(wget -qO - https://tinyurl.com/server-setup)
+   ```
+   或
+   ```bash
+   /bin/bash <(wget -qO - https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/server-setup.sh)
    ```
 
    或者，也可以克隆整个仓库：
