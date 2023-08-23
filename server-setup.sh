@@ -110,30 +110,75 @@ disable_ssh_password_login() {
     fi
 }
 
-# bash 环境变量加入alias
-add_bash_aliases() {
-    echo "正在为bash环境添加别名..."
+# 添加docker工具脚本
+add_docker_tools() {
+    echo "你是否希望安装docker工具箱？（包括常用的docker命令和自定义脚本）"
+    echo "-----------------------------------"
+    echo "docker工具箱，添加便捷指令."
+    echo "功能1、nginx命令=docker nginx"
+    echo "功能2、dlogs命令=查看docker容器日志"
+    echo "功能3、dc命令=docker-compose"
+    echo "功能4、dcs命令=查看docker-compose容器状态（需要在compose.yml文件夹内执行）"
+    echo "功能5、dcps命令=查看docker-compose容器（需要在compose.yml文件夹内执行）"
+    echo "功能6、dcip命令=查看容器ip，并添加到宿主机hosts中"
+    echo "工具脚本保存在""/root/docker_tools"文件夹中，请勿删除
+    echo "-----------------------------------"
 
-    # 检查是否已经存在.bashrc文件
-    if [ -e "/root/.bashrc" ]; then
-        # 备份原始.bashrc文件
-        cp /root/.bashrc /root/.bashrc.bak
-    fi
+    read -p "是否安装，请输入 y 或 n：" install_choice
 
-    # 检查是否已经存在别名，避免重复添加
-    if grep -q "alias nginx=" /root/.bashrc; then
-        echo "别名已存在，无需重复添加。"
-    else
-        # 追加alias到.bashrc文件
-        echo '# ~/.bashrc: executed by bash(1) for non-login shells.' >> /root/.bashrc
-        echo 'alias nginx="docker exec -i docker_nginx nginx"' >> /root/.bashrc
-        echo 'alias dc="docker-compose"' >> /root/.bashrc
-        echo 'alias dcs="docker-compose ps -q | xargs docker stats"' >> /root/.bashrc
-        echo 'alias dcps="docker ps $((docker-compose ps -q  || echo "#") | while read line; do echo "--filter id=$line"; done)"' >> /root/.bashrc
-        echo 'alias dcip="bash /root/dcip/dcip.sh"' >> /root/.bashrc
-        echo "别名添加成功。"
-    fi
+    case $install_choice in
+        y|Y)
+            # 检查是否已经存在.bashrc文件
+            if [ -e "/root/.bashrc" ]; then
+                # 备份原始.bashrc文件
+                cp /root/.bashrc /root/.bashrc.bak
+            fi
+
+            # 创建存放工具脚本的文件夹
+            tools_folder="/root/docker_tools"
+            mkdir -p "$tools_folder"
+
+            # 下载dlogs.sh脚本
+            wget -qO "$tools_folder/dlogs.sh" "https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/dlogs.sh"
+            if [ $? -eq 0 ]; then
+                chmod +x "$tools_folder/dlogs.sh"
+                echo "dlogs.sh脚本已下载并添加到 $tools_folder 文件夹。"
+            else
+                echo "下载dlogs.sh脚本失败。"
+            fi
+
+            # 下载dcip.sh脚本
+            wget -qO "$tools_folder/dcip.sh" "https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/dcip.sh"
+            if [ $? -eq 0 ]; then
+                chmod +x "$tools_folder/dcip.sh"
+                echo "dcip.sh脚本已下载并添加到 $tools_folder 文件夹。"
+            else
+                echo "下载dcip.sh脚本失败。"
+            fi
+
+            # 检查是否已经存在别名，避免重复添加
+            if grep -q "alias nginx=" /root/.bashrc; then
+                echo "别名已存在，无需重复添加。"
+            else
+                # 追加alias到.bashrc文件
+                echo 'alias nginx="docker exec -i docker_nginx nginx"' >> /root/.bashrc
+                echo 'alias dc="docker-compose"' >> /root/.bashrc
+                echo 'alias dcs="docker-compose ps -q | xargs docker stats"' >> /root/.bashrc
+                echo 'alias dcps="docker ps $((docker-compose ps -q  || echo "#") | while read line; do echo "--filter id=$line"; done)"' >> /root/.bashrc
+                echo 'alias dcip="bash /root/docker_tools/dcip.sh"' >> /root/.bashrc
+                echo 'alias dlogs="bash /root/docker_tools/dlogs.sh"' >> /root/.bashrc
+            fi
+            echo "docker工具箱已成功安装。"
+            ;;
+        n|N)
+            echo "取消安装docker工具箱。"
+            ;;
+        *)
+            echo "无效的选项，取消安装docker工具箱。"
+            ;;
+    esac
 }
+
 
 # 设置虚拟内存
 set_virtual_memory() {
@@ -498,7 +543,7 @@ display_menu() {
     echo "1. 安装必要组件"
     echo "2. 添加已登记设备的公钥"
     echo "3. 关闭ssh密码登录"
-    echo "4. bash 环境变量加入alias"
+    echo "4. 添加docker工具脚本"
     echo "5. 设置虚拟内存"
     echo "6. 修改swap使用阈值"
     echo "7. 优化内核参数"
@@ -539,7 +584,7 @@ main() {
                 disable_ssh_password_login
                 ;;
             4)
-                add_bash_aliases
+                add_docker_tools
                 ;;
             5)
                 set_virtual_memory

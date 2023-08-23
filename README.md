@@ -23,9 +23,16 @@ CentOS请自测，已做兼容处理，未测试，并且不支持XanMod内核
 
 选择此选项将禁用SSH的密码登录功能，增强系统的安全性。脚本将在`/etc/ssh/sshd_config`文件中设置`PasswordAuthentication no`，然后重新启动SSH服务。
 
-## 选项 4：为bash环境添加别名
+## 选项 4：添加docker工具脚本
 
 使用此选项，可以为bash环境添加一些有用的别名，以便更方便地执行常用命令。这些别名包括对Docker、Docker Compose和其他一些命令的快捷方式。
+
+    功能1、nginx命令=docker nginx
+    功能2、dlogs命令=查看docker容器日志
+    功能3、dc命令=docker-compose
+    功能4、dcs命令=查看docker-compose容器状态（需要在compose.yml文件夹内执行）
+    功能5、dcps命令=查看docker-compose容器（需要在compose.yml文件夹内执行）
+    功能6、dcip命令=查看容器ip，并添加到宿主机hosts中
 
 ## 选项 5：设置虚拟内存
 
