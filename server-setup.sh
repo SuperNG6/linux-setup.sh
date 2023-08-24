@@ -6,8 +6,19 @@ if [ "$(id -u)" != "0" ]; then
     exit 1
 fi
 
+# 判断是否安装了 dialog 命令
+check_dialog_installation() {
+    if command -v dialog &>/dev/null; then
+        return 0 # 已安装
+    else
+        return 1 # 未安装
+    fi
+}
+
 # 获取操作系统信息
 get_os_info() {
+    # 忽略大小写匹配
+
     if [ -f /etc/os-release ]; then
         source /etc/os-release
         if [[ $ID == "debian" || $ID == "ubuntu" ]]; then
@@ -17,7 +28,7 @@ get_os_info() {
         elif [ $ID == "fedora" ]; then
             echo "Fedora"
         elif [ $ID == "arch" ]; then
-            echo "Arch Linux"
+            echo "Arch"
         # 添加更多的操作系统判断
         # elif [ $ID == "some-other-os" ]; then
         #     echo "Some Other OS"
@@ -29,7 +40,7 @@ get_os_info() {
     elif [ -f /etc/fedora-release ]; then
         echo "Fedora"
     elif [ -f /etc/arch-release ]; then
-        echo "Arch Linux"
+        echo "Arch"
     else
         echo "Unknown"
     fi
@@ -38,39 +49,48 @@ get_os_info() {
 
 # 安装必要组件
 install_components() {
+    echo "是否需要安装必要组件？(y/n)"
+    echo "docker.io docker-compose fail2ban vim curl"
+    read choice
+
+    if [ "$choice" != "y" ] && [ "$choice" != "Y" ]; then
+        echo "取消安装。"
+        return 1
+    fi
+
     echo "正在安装必要组件..."
 
     # 获取操作系统信息
     os_type=$(get_os_info)
-
+    
     case $os_type in
-        debian|ubuntu)
+        Debian/Ubuntu)
             # 更新软件包列表，如果失败则退出
-            apt -y update || { echo "更新软件包列表失败"; exit 1; }
+            apt -y update || { echo "更新软件包列表失败"; return 1; }
             # 安装组件，如果失败则退出
-            apt -y install docker.io docker-compose fail2ban vim curl || { echo "安装组件失败"; exit 1; }
+            apt -y install docker.io docker-compose fail2ban vim curl || { echo "安装组件失败"; return 1; }
             ;;
-        centos)
+        CentOS)
             # 更新软件包列表，如果失败则退出
-            yum -y update || { echo "更新软件包列表失败"; exit 1; }
+            yum -y update || { echo "更新软件包列表失败"; return 1; }
             # 安装组件，如果失败则退出
-            yum -y install docker docker-compose fail2ban vim curl || { echo "安装组件失败"; exit 1; }
+            yum -y install docker docker-compose fail2ban vim curl || { echo "安装组件失败"; return 1; }
             ;;
-        fedora)
+        Fedora)
             # 更新软件包列表，如果失败则退出
-            dnf -y update || { echo "更新软件包列表失败"; exit 1; }
+            dnf -y update || { echo "更新软件包列表失败"; return 1; }
             # 安装组件，如果失败则退出
-            dnf -y install docker docker-compose fail2ban vim curl || { echo "安装组件失败"; exit 1; }
+            dnf -y install docker docker-compose fail2ban vim curl || { echo "安装组件失败"; return 1; }
             ;;
-        arch)
+        Arch)
             # 更新软件包列表，如果失败则退出
-            pacman -Syu --noconfirm || { echo "更新软件包列表失败"; exit 1; }
+            pacman -Syu --noconfirm || { echo "更新软件包列表失败"; return 1; }
             # 安装组件，如果失败则退出
-            pacman -S --noconfirm docker docker-compose fail2ban vim curl || { echo "安装组件失败"; exit 1; }
+            pacman -S --noconfirm docker docker-compose fail2ban vim curl || { echo "安装组件失败"; return 1; }
             ;;
         *)
             echo "无法确定操作系统类型，无法安装组件。"
-            exit 1
+            return 1
             ;;
     esac
 
@@ -85,13 +105,13 @@ add_public_key() {
     # 检查公钥是否为空
     if [ -z "$public_key" ]; then
         echo "无效的公钥。"
-        exit 1
+        return 1
     fi
 
     # 检查公钥格式
     if [[ ! "$public_key" =~ ^ssh-rsa[[:space:]]+[A-Za-z0-9+/]+[=]{0,3}(\s*.+)? ]]; then
         echo "无效的公钥格式。"
-        exit 1
+        return 1
     fi
 
     # 备份原始authorized_keys文件
@@ -107,7 +127,7 @@ add_public_key() {
         echo "公钥添加失败。"
         # 恢复备份的authorized_keys文件
         mv ~/.ssh/authorized_keys.bak ~/.ssh/authorized_keys
-        exit 1
+        return 1
     fi
 }
 
@@ -130,11 +150,11 @@ disable_ssh_password_login() {
             echo "SSH密码登录关闭失败。"
             # 恢复备份的sshd_config文件
             mv /etc/ssh/sshd_config.bak /etc/ssh/sshd_config
-            exit 1
+            return 1
         fi
     else
         echo "sshd_config 文件不存在"
-        exit 1
+        return 1
     fi
 }
 
@@ -268,7 +288,7 @@ set_virtual_memory() {
             ;;
         *)
             echo "无效的选项。"
-            exit 1
+            return 1
             ;;
     esac
 
@@ -297,7 +317,7 @@ set_virtual_memory() {
             ;;
         *)
             echo "无效的虚拟内存大小单位。"
-            exit 1
+            return 1
             ;;
     esac
 
@@ -316,11 +336,11 @@ set_virtual_memory() {
             swapon -s | grep '/swap'
         else
             echo "交换文件创建成功，但启用交换失败，请检查命令是否执行成功。"
-            exit 1
+            return 1
         fi
     else
         echo "创建交换文件失败，请检查命令是否执行成功。"
-        exit 1
+        return 1
     fi
 }
 
@@ -333,7 +353,7 @@ modify_swap_usage_threshold() {
     # 检查输入是否为数字且在0-100范围内
     if ! [[ "$swap_value" =~ ^[0-9]+$ ]] || [ "$swap_value" -lt 0 ] || [ "$swap_value" -gt 100 ]; then
         echo "无效的输入，请输入0-100之间的数字。"
-        exit 1
+        return 1
     fi
 
     # 备份原始配置文件
@@ -359,7 +379,7 @@ modify_swap_usage_threshold() {
         echo "swap使用阈值修改失败，请检查配置文件。"
         # 恢复备份文件
         mv /etc/sysctl.conf.bak /etc/sysctl.conf
-        exit 1
+        return 1
     fi
 }
 
@@ -410,7 +430,7 @@ optimize_kernel_parameters() {
         echo "内核参数优化失败，请检查配置文件。"
         # 恢复备份文件
         mv /etc/sysctl.conf.bak /etc/sysctl.conf
-        exit 1
+        return 1
     fi
 }
 
@@ -425,7 +445,7 @@ install_xanmod_kernel() {
         echo "你的CPU支持XanMod内核，级别为 x86-64-v$cpu_support_level"
     else
         echo "你的CPU不受XanMod内核支持，无法安装。"
-        exit 1
+        return 1
     fi
 
     read -p "是否继续下载并安装XanMod内核？ (y/n): " continue_choice
@@ -462,7 +482,7 @@ install_xanmod_kernel() {
                     ;;
                 *)
                     echo "你的CPU不受XanMod内核支持，无法安装。"
-                    exit 1
+                    return 1
                     ;;
             esac
 
@@ -473,12 +493,12 @@ install_xanmod_kernel() {
             # 校验 MD5 值
             if [ "$(md5sum $headers_file | awk '{print $1}')" != "$headers_md5" ]; then
                 echo "下载的 $headers_file MD5 值不匹配，可能文件已被篡改。"
-                exit 1
+                return 1
             fi
 
             if [ "$(md5sum $image_file | awk '{print $1}')" != "$image_md5" ]; then
                 echo "下载的 $image_file MD5 值不匹配，可能文件已被篡改。"
-                exit 1
+                return 1
             fi
 
             # 安装内核
@@ -520,7 +540,7 @@ install_xanmod_kernel() {
 
 # 卸载XanMod内核并恢复原有内核，并更新Grub引导配置
 uninstall_xanmod_kernel() {
-    echo "正在检查当前内核..."
+    echo "正在检查当前内核...$(uname -r)"
 
     # 获取当前内核的版本号
     current_kernel_version=$(uname -r)
@@ -528,20 +548,28 @@ uninstall_xanmod_kernel() {
     # 检查是否为XanMod内核
     if [[ $current_kernel_version == *-xanmod* ]]; then
         echo "当前内核为 XanMod 内核：$current_kernel_version"
-        echo "正在卸载XanMod内核并恢复原有内核..."
+        
+        # 显示卸载提示
+        read -p "确定要卸载XanMod内核并恢复原有内核吗？(y/n): " confirm
+        if [[ $confirm == [yY] ]]; then
+            echo "正在卸载XanMod内核并恢复原有内核..."
 
-        # 卸载XanMod内核
-        apt-get purge linux-image-*xanmod* linux-headers-*xanmod*
-        apt-get autoremove
+            # 卸载XanMod内核
+            apt-get purge linux-image-*xanmod* linux-headers-*xanmod* -y
+            apt-get autoremove -y
 
-        # 更新Grub引导配置
-        update-grub
+            # 更新Grub引导配置
+            update-grub
 
-        echo "XanMod内核已卸载并恢复原有内核。Grub引导配置已更新，重启后生效。"
+            echo "XanMod内核已卸载并恢复原有内核。Grub引导配置已更新，重启后生效。"
+        else
+            echo "取消卸载操作。"
+        fi
     else
         echo "当前内核不是XanMod内核，无法执行卸载操作。"
     fi
 }
+
 
 # 修改SSH端口号
 modify_ssh_port() {
@@ -557,7 +585,7 @@ modify_ssh_port() {
 
     if ! [[ "$new_port" =~ ^[0-9]+$ ]]; then
         echo "无效的输入，请输入有效的端口号。"
-        exit 1
+        return 1 # 返回非零退出状态码表示错误
     fi
 
     if [ -z "$current_port" ]; then
@@ -571,16 +599,17 @@ modify_ssh_port() {
     systemctl restart sshd
 
     echo "SSH端口号已修改为：$new_port"
+    
 }
-
-
-# 设置颜色和样式
-GREEN='\033[0;32m'
-BOLD='\033[1m'
-RESET='\033[0m'
 
 # 显示操作菜单选项
 display_menu() {
+
+    # 设置颜色和样式
+    GREEN='\033[0;32m'
+    BOLD='\033[1m'
+    RESET='\033[0m'
+
     clear
     echo -e "${BOLD}欢迎使用 Linux 配置工具${RESET}"
     echo "-----------------------------------"
@@ -597,7 +626,7 @@ display_menu() {
 
     os_type=$(get_os_info)
     case $os_type in
-        debian|ubuntu)
+        "Debian/Ubuntu")
             echo -e "${GREEN} 8${RESET}       下载并安装 XanMod 内核 (BBRv3)"
             echo -e "${GREEN} 9${RESET}       卸载 XanMod 内核，并恢复原有内核"
             ;;
@@ -608,38 +637,86 @@ display_menu() {
     echo -e "${BOLD}输入${RESET} 'q' ${BOLD}退出${RESET}"
 }
 
+# 显示操作菜单选项
+display_dialog_menu() {
+    os_type=$(get_os_info)
+
+    dialog_cmd="dialog --clear --title \"Linux 配置工具\" \
+        --menu \"请选择以下选项：\" 15 60 10 \
+        1 \"安装必要组件\" \
+        2 \"添加已登记设备的公钥\" \
+        3 \"关闭 SSH 密码登录\" \
+        4 \"添加 Docker 工具脚本\" \
+        5 \"设置虚拟内存\" \
+        6 \"修改 Swap 使用阈值\" \
+        7 \"优化内核参数\""
+
+    if [[ $os_type == "Debian/Ubuntu" ]]; then
+        dialog_cmd="${dialog_cmd} \
+        8 \"下载并安装 XanMod 内核 (BBRv3)\" \
+        9 \"卸载 XanMod 内核，并恢复原有内核\""
+    fi
+
+    dialog_cmd="${dialog_cmd} \
+        10 \"修改 SSH 端口号\" \
+        q \"退出\" 2> menu_choice.txt"
+
+    eval "$dialog_cmd"
+}
+
+
+# 根据用户选择执行相应的操作
+handle_choice() {
+    clear
+    case $1 in
+        1) install_components ;;
+        2) add_public_key ;;
+        3) disable_ssh_password_login ;;
+        4) add_docker_tools ;;
+        5) set_virtual_memory ;;
+        6) modify_swap_usage_threshold ;;
+        7) optimize_kernel_parameters ;;
+        8) install_xanmod_kernel ;;
+        9) uninstall_xanmod_kernel ;;
+        10) modify_ssh_port ;;
+        q|Q) return 1 ;; # 返回非零值来退出循环
+        *) echo "无效的选项，请输入合法的选项数字。" ;;
+    esac
+    read -p "按 Enter 键回到主菜单..."
+}
+
 # 主函数，接受选项并执行相应的脚本
 main() {
     trap cleanup EXIT
 
-    # 使用 while 循环允许用户返回主菜单
     while true; do
-        display_menu
-        read -p "请输入选项数字：" choice
-        clear
-
-        case $choice in
-            1) install_components ;;
-            2) add_public_key ;;
-            3) disable_ssh_password_login ;;
-            4) add_docker_tools ;;
-            5) set_virtual_memory ;;
-            6) modify_swap_usage_threshold ;;
-            7) optimize_kernel_parameters ;;
-            8) install_xanmod_kernel ;;
-            9) uninstall_xanmod_kernel ;;
-            10) modify_ssh_port ;;
-            q|Q) break ;;
-            *) echo -e "${BOLD}${GREEN}无效的选项，请输入合法的选项数字。${RESET}" ;;
-        esac
-        read -p "按 Enter 键继续..."
+        if check_dialog_installation; then
+            display_dialog_menu
+            choice=$(cat menu_choice.txt)
+            # 检查用户选择是否为空，如果是则退出脚本
+            if [ -z "$choice" ]; then
+                break
+            fi
+            # 根据用户选择执行相应的操作
+            handle_choice "$choice" || break
+        else
+            display_menu
+            read -p "请输入选项数字：" choice
+            # 根据用户选择执行相应的操作
+            handle_choice "$choice" || break
+        fi
+        
     done
-    echo -e "${BOLD}感谢使用本脚本！${RESET}"
+    echo "欢迎再次使用本脚本！"
+    sleep 1s
 }
 
 # 清理函数，在脚本退出时执行
 cleanup() {
-    echo -e "正在退出脚本..."
+    rm -f menu_choice.txt
+    echo "正在退出脚本..."
+    sleep 1s
+    tput reset
 }
 
 main "$@"
