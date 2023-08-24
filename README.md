@@ -2,7 +2,7 @@
 
 适用于Debian10、11、12  
 Ubuntu请自测，目测兼容  
-CentOS请自测，已做兼容处理，未测试，并且不支持XanMod内核  
+CentOS、Fedora 和 Arch Linux 请自测，已做兼容处理，未测试，并且不支持XanMod内核  
 
 ```markdown
 # 介绍

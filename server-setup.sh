@@ -36,7 +36,6 @@ get_os_info() {
 }
 
 
-
 # 安装必要组件
 install_components() {
     echo "正在安装必要组件..."
@@ -45,7 +44,7 @@ install_components() {
     os_type=$(get_os_info)
 
     case $os_type in
-        debian)
+        debian|ubuntu)
             # 更新软件包列表，如果失败则退出
             apt -y update || { echo "更新软件包列表失败"; exit 1; }
             # 安装组件，如果失败则退出
@@ -56,6 +55,18 @@ install_components() {
             yum -y update || { echo "更新软件包列表失败"; exit 1; }
             # 安装组件，如果失败则退出
             yum -y install docker docker-compose fail2ban vim curl || { echo "安装组件失败"; exit 1; }
+            ;;
+        fedora)
+            # 更新软件包列表，如果失败则退出
+            dnf -y update || { echo "更新软件包列表失败"; exit 1; }
+            # 安装组件，如果失败则退出
+            dnf -y install docker docker-compose fail2ban vim curl || { echo "安装组件失败"; exit 1; }
+            ;;
+        arch)
+            # 更新软件包列表，如果失败则退出
+            pacman -Syu --noconfirm || { echo "更新软件包列表失败"; exit 1; }
+            # 安装组件，如果失败则退出
+            pacman -S --noconfirm docker docker-compose fail2ban vim curl || { echo "安装组件失败"; exit 1; }
             ;;
         *)
             echo "无法确定操作系统类型，无法安装组件。"
@@ -583,8 +594,15 @@ display_menu() {
     echo -e "${GREEN} 5${RESET}       设置虚拟内存"
     echo -e "${GREEN} 6${RESET}       修改 Swap 使用阈值"
     echo -e "${GREEN} 7${RESET}       优化内核参数"
-    echo -e "${GREEN} 8${RESET}       下载并安装 XanMod 内核 (BBRv3)"
-    echo -e "${GREEN} 9${RESET}       卸载 XanMod 内核，并恢复原有内核"
+
+    os_type=$(get_os_info)
+    case $os_type in
+        debian|ubuntu)
+            echo -e "${GREEN} 8${RESET}       下载并安装 XanMod 内核 (BBRv3)"
+            echo -e "${GREEN} 9${RESET}       卸载 XanMod 内核，并恢复原有内核"
+            ;;
+    esac
+
     echo -e "${GREEN}10${RESET}       修改 SSH 端口号"
     echo "-----------------------------------"
     echo -e "${BOLD}输入${RESET} 'q' ${BOLD}退出${RESET}"
