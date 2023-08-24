@@ -8,16 +8,33 @@ fi
 
 # 获取操作系统信息
 get_os_info() {
-    # 判断是否是Debian/Ubuntu
-    if [ -f /etc/debian_version ]; then
-        echo "debian"
-    # 判断是否是CentOS
+    if [ -f /etc/os-release ]; then
+        source /etc/os-release
+        if [[ $ID == "debian" || $ID == "ubuntu" ]]; then
+            echo "Debian/Ubuntu"
+        elif [ $ID == "centos" ]; then
+            echo "CentOS"
+        elif [ $ID == "fedora" ]; then
+            echo "Fedora"
+        elif [ $ID == "arch" ]; then
+            echo "Arch Linux"
+        # 添加更多的操作系统判断
+        # elif [ $ID == "some-other-os" ]; then
+        #     echo "Some Other OS"
+        else
+            echo "Unknown"
+        fi
     elif [ -f /etc/centos-release ]; then
-        echo "centos"
+        echo "CentOS"
+    elif [ -f /etc/fedora-release ]; then
+        echo "Fedora"
+    elif [ -f /etc/arch-release ]; then
+        echo "Arch Linux"
     else
-        echo "unknown"
+        echo "Unknown"
     fi
 }
+
 
 
 # 安装必要组件
