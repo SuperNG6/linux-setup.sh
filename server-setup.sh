@@ -47,6 +47,22 @@ get_os_info() {
 }
 
 
+check_firewall() {
+    if command -v ufw &>/dev/null; then
+        echo "ufw"  # 返回 ufw 表示安装了 ufw 防火墙
+    elif command -v firewalld &>/dev/null; then
+        echo "firewalld"  # 返回 firewalld 表示安装了 firewalld 防火墙
+    elif command -v iptables &>/dev/null; then
+        echo "iptables"  # 返回 iptables 表示安装了 iptables 防火墙
+    elif command -v nft &>/dev/null; then
+        echo "nftables"  # 返回 nftables 表示安装了 nftables 防火墙
+    else
+        echo "unknown"  # 返回 unknown 表示未安装支持的防火墙工具
+    fi
+}
+
+
+
 # 安装必要组件
 install_components() {
     echo "是否需要安装必要组件？(y/n)"
@@ -595,12 +611,39 @@ modify_ssh_port() {
         # 更新现有的端口号配置
         sed -i "s/^Port .*/Port $new_port/" /etc/ssh/sshd_config
     fi
-
+    chmod 644 /etc/ssh/sshd_config
     systemctl restart sshd
 
     echo "SSH端口号已修改为：$new_port"
-    
+
+    # 开放新端口号根据不同的防火墙
+    firewall=$(check_firewall)
+    case $firewall in
+        "ufw")
+            ufw allow $new_port/tcp
+            echo "开放防火墙SSH端口 $new_port"
+            ;;
+        "firewalld")
+            firewall-cmd --add-port=$new_port/tcp --permanent
+            firewall-cmd --reload
+            echo "开放防火墙SSH端口 $new_port"
+            ;;
+        "iptables")
+            iptables -A INPUT -p tcp --dport $new_port -j ACCEPT
+            service iptables save
+            service iptables restart
+            echo "开放防火墙SSH端口 $new_port"
+            ;;
+        "nftables")
+            nft add rule ip filter input tcp dport $new_port accept
+            echo "开放防火墙SSH端口 $new_port"
+            ;;
+        *)
+            echo "不支持的防火墙或找不到防火墙。"
+            ;;
+    esac
 }
+
 
 # 显示操作菜单选项
 display_menu() {
