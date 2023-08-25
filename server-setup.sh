@@ -61,6 +61,41 @@ check_firewall() {
     fi
 }
 
+# 根据已安装的防火墙显示当前开放的端口
+display_open_ports() {
+    firewall=$(check_firewall)
+
+    case $firewall in
+        "ufw")
+            echo "当前开放的防火墙端口 (TCP):"
+            ufw status | grep "ALLOW" | grep -oP '\d+/tcp' | sort -u
+            echo "当前开放的防火墙端口 (UDP):"
+            ufw status | grep "ALLOW" | grep -oP '\d+/udp' | sort -u
+            ;;
+        "firewalld")
+            echo "当前开放的防火墙端口 (TCP):"
+            firewall-cmd --list-ports | grep "tcp"
+            echo "当前开放的防火墙端口 (UDP):"
+            firewall-cmd --list-ports | grep "udp"
+            ;;
+        "iptables")
+            echo "当前开放的防火墙端口 (TCP):"
+            iptables-legacy -L INPUT -n --line-numbers | grep "tcp" | grep -oP '\d+' | sort -u
+            echo "当前开放的防火墙端口 (UDP):"
+            iptables-legacy -L INPUT -n --line-numbers | grep "udp" | grep -oP '\d+' | sort -u
+            ;;
+        "nftables")
+            echo "当前开放的防火墙端口 (TCP):"
+            nft list ruleset | grep "tcp" | grep -oP '\d+' | sort -u
+            echo "当前开放的防火墙端口 (UDP):"
+            nft list ruleset | grep "udp" | grep -oP '\d+' | sort -u
+            ;;
+        *)
+            echo "找不到支持的防火墙。"
+            return 1
+            ;;
+    esac
+}
 
 
 # 安装必要组件
@@ -645,6 +680,114 @@ modify_ssh_port() {
 }
 
 
+# 设置防火墙端口
+set_firewall_ports() {
+    firewall=$(check_firewall)
+
+    case $firewall in
+        "ufw")
+            firewall_cmd="ufw"
+            ;;
+        "firewalld")
+            firewall_cmd="firewall-cmd"
+            ;;
+        "iptables")
+            firewall_cmd="iptables-legacy"
+            ;;
+        "nftables")
+            firewall_cmd="nft"
+            ;;
+        *)
+            echo "找不到支持的防火墙。"
+            return 1
+            ;;
+    esac
+
+    echo "当前系统安装的防火墙为：$(check_firewall)"
+    echo "=========================================="
+    display_open_ports
+    echo -e "============================================="
+    echo "请选择要执行的操作:"
+    echo -e "============================================="
+    echo "1. 开放防火墙端口"
+    echo "2. 关闭防火墙端口"
+    read -p "请输入操作选项 (1/2): " action
+
+    case $action in
+        1)
+            echo -e "============================================="
+            echo -e "','逗号为分隔符，支持一次输入多个tcp，udp端口"
+            echo -e "============================================="
+            read -p "请输入要开放的新防火墙端口，如80t,443t,53u（t代表TCP，u代表UDP）：" new_ports_input
+            
+            # 设置 IFS（内部字段分隔符）为逗号，将输入字符串按逗号分割成数组
+            IFS=',' read -ra new_ports <<< "$new_ports_input"
+
+            for port_input in "${new_ports[@]}"; do
+                if [[ ! "$port_input" =~ ^[0-9]+[tu]$ ]]; then
+                    echo "无效的输入，请按照格式输入端口号和协议缩写（例如：80t 或 443u）。"
+                    return 1
+                fi
+
+                port="${port_input%[tu]}"
+                case "${port_input: -1}" in
+                    t)
+                        protocol="tcp"
+                        ;;
+                    u)
+                        protocol="udp"
+                        ;;
+                    *)
+                        echo "无效的协议缩写。"
+                        return 1
+                        ;;
+                esac
+
+                $firewall_cmd allow $port/$protocol
+                echo "开放 $protocol 端口 $port 成功。"
+            done
+            ;;
+        2)
+            echo -e "============================================="
+            echo -e "','逗号为分隔符，支持一次输入多个tcp，udp端口"
+            echo -e "============================================="
+            read -p "请输入要关闭的防火墙端口，如80t,53u（t代表TCP，u代表UDP）：" ports_to_close_input
+
+            # 设置 IFS（内部字段分隔符）为逗号，将输入字符串按逗号分割成数组
+            IFS=',' read -ra ports_to_close <<< "$ports_to_close_input"
+
+            for port_input in "${ports_to_close[@]}"; do
+                if [[ ! "$port_input" =~ ^[0-9]+[tu]$ ]]; then
+                    echo "无效的输入，请按照格式输入端口号和协议缩写（例如：80t 或 443u）。"
+                    return 1
+                fi
+
+                port="${port_input%[tu]}"
+                case "${port_input: -1}" in
+                    t)
+                        protocol="tcp"
+                        ;;
+                    u)
+                        protocol="udp"
+                        ;;
+                    *)
+                        echo "无效的协议缩写。"
+                        return 1
+                        ;;
+                esac
+
+                $firewall_cmd deny $port/$protocol
+                echo "关闭 $protocol 端口 $port 成功。"
+            done
+            ;;
+        *)
+            echo "无效的操作选项。"
+            return 1
+            ;;
+    esac
+}
+
+
 # 显示操作菜单选项
 display_menu() {
 
@@ -677,6 +820,7 @@ display_menu() {
     esac
 
     echo -e "${GREEN}10${RESET}       修改 SSH 端口号"
+    echo -e "${GREEN}11${RESET}       设置防火墙端口"
     echo "-----------------------------------"
     echo -e "${BOLD}输入${RESET} 'q' ${BOLD}退出${RESET}"
 }
@@ -704,6 +848,7 @@ display_dialog_menu() {
 
     dialog_cmd="${dialog_cmd} \
         10 \"修改 SSH 端口号\" \
+        11 \"设置防火墙端口\" \
         q \"退出\" 2> menu_choice.txt"
 
     eval "$dialog_cmd"
@@ -724,6 +869,7 @@ handle_choice() {
         8) install_xanmod_kernel ;;
         9) uninstall_xanmod_kernel ;;
         10) modify_ssh_port ;;
+        11) set_firewall_ports ;;
         q|Q) return 1 ;; # 返回非零值来退出循环
         *) echo "无效的选项，请输入合法的选项数字。" ;;
     esac
