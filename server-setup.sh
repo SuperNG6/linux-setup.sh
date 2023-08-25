@@ -46,7 +46,7 @@ get_os_info() {
     fi
 }
 
-
+# 检查已安装的防火墙类型
 check_firewall() {
     if command -v ufw &>/dev/null; then
         echo "ufw"  # 返回 ufw 表示安装了 ufw 防火墙
@@ -654,7 +654,8 @@ display_menu() {
     RESET='\033[0m'
 
     clear
-    echo -e "${BOLD}欢迎使用 Linux 配置工具${RESET}"
+    echo -e "${BOLD}欢迎使用 SuperNG6 的 Linux 配置工具${RESET}"
+    echo -e "${BOLD}GitHub：https://github.com/SuperNG6/linux-setup.sh${RESET}"
     echo "-----------------------------------"
     echo -e "请选择以下选项：\n"
     echo -e "${BOLD}选项${RESET}     ${BOLD}描述${RESET}"
@@ -684,7 +685,8 @@ display_menu() {
 display_dialog_menu() {
     os_type=$(get_os_info)
 
-    dialog_cmd="dialog --clear --title \"Linux 配置工具\" \
+    dialog_cmd="dialog --clear --title \"SuperNG6 的 Linux 配置工具\" \
+        --backtitle \"GitHub: https://github.com/SuperNG6/linux-setup.sh\" \
         --menu \"请选择以下选项：\" 15 60 10 \
         1 \"安装必要组件\" \
         2 \"添加已登记设备的公钥\" \
