@@ -279,20 +279,51 @@ add_docker_tools() {
 }
 
 
+
+# 函数：删除所有交换空间文件和分区
+remove_all_swap() {
+    # 获取所有交换空间文件的列表
+    swap_files=$(swapon -s | awk '{if($1!~"^Filename"){print $1}}')
+
+    # 遍历并禁用、删除每个交换空间文件
+    for file in $swap_files; do
+        echo "正在禁用并删除交换空间文件：$file"
+        swapoff "$file"
+        rm -f "$file"
+        echo "已删除交换空间文件：$file"
+    done
+
+    # 获取所有交换分区的列表
+    swap_partitions=$(grep -E '^\S+\s+\S+\sswap\s+' /proc/swaps | awk '{print $1}')
+
+    # 遍历并禁用每个交换分区
+    for partition in $swap_partitions; do
+        echo "正在禁用交换分区：$partition"
+        swapoff "$partition"
+        echo "已禁用交换分区：$partition"
+    done
+
+    echo "所有交换空间文件和分区已删除。"
+}
+
+
+
+
 # 设置虚拟内存
 set_virtual_memory() {
     echo "正在检查当前交换空间..."
-    if swapon -s | grep -q '/swap'; then
+    swap_files=$(swapon -s | awk '{if($1!~"^Filename"){print $1}}')
+
+    if [ -n "$swap_files" ]; then
         echo "当前交换空间大小如下："
-        swapon -s | grep '/swap'
+        swapon --show
         echo "是否要删除已存在的交换空间？"
         read -p "请输入 y 或 n：" remove_choice
 
         case $remove_choice in
             y|Y)
-                swapoff /swap
-                rm -rf /swap
-                echo "已删除交换空间。"
+                # 调用函数以删除所有交换空间文件和分区
+                remove_all_swap
                 ;;
             n|N)
                 echo "保留已存在的交换空间。"
@@ -346,16 +377,10 @@ set_virtual_memory() {
     echo "正在设置虚拟内存..."
 
     # 检查是否已经存在交换文件
-    if [ -e "/swap" ]; then
+    if [ -n "$swap_files" ]; then
         echo "已经存在交换文件。删除现有的交换文件..."
-        swapoff /swap
-        rm -rf /swap
-    fi
-
-    if [ -e "/swapfile" ]; then
-        echo "已经存在交换文件。删除现有的交换文件..."
-        swapoff /swapfile
-        rm -rf /swapfile
+        # 调用函数以删除所有交换空间文件和分区
+        remove_all_swap
     fi
 
     # 将单位转换为KB
