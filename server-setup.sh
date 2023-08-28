@@ -365,8 +365,8 @@ set_virtual_memory() {
             swap_size="$swap_size_input"
             ;;
         q|Q)
-            echo "正在退出脚本..."
-            exit 0
+            echo "返回主菜单..."
+            return 1
             ;;
         *)
             echo "无效的选项。"
@@ -464,53 +464,69 @@ modify_swap_usage_threshold() {
 
 # 优化内核参数
 optimize_kernel_parameters() {
-    echo "正在优化内核参数..."
-    
-    # 备份原始配置文件
-    cp /etc/sysctl.conf /etc/sysctl.conf.bak
+    read -p "您确定要优化内核参数吗？(y/n): " optimize_choice
 
-    # 检查是否存在net.ipv4.tcp_fastopen=3，如果存在则注释掉
-    if grep -q "^net.ipv4.tcp_fastopen=3" /etc/sysctl.conf; then
-        sed -i 's/^net.ipv4.tcp_fastopen=3/#net.ipv4.tcp_fastopen=3/' /etc/sysctl.conf
-    fi
+    case $optimize_choice in
+        y|Y)
+            echo "备份原始配置内核参数..."
+            # 备份原始配置文件
+            cp /etc/sysctl.conf /etc/sysctl.conf.bak
 
-    # 添加net.ipv4.tcp_slow_start_after_idle=0和net.ipv4.tcp_notsent_lowat=16384到/etc/sysctl.conf
-    if ! grep -q "^net.ipv4.tcp_slow_start_after_idle" /etc/sysctl.conf; then
-        echo "net.ipv4.tcp_slow_start_after_idle=0" >> /etc/sysctl.conf
-    else
-        sed -i 's/^net.ipv4.tcp_slow_start_after_idle=.*/net.ipv4.tcp_slow_start_after_idle=0/' /etc/sysctl.conf
-    fi
+            # 备份原始配置文件
+            cp /etc/sysctl.conf /etc/sysctl.conf.bak
 
-    if ! grep -q "^net.ipv4.tcp_notsent_lowat" /etc/sysctl.conf; then
-        echo "net.ipv4.tcp_notsent_lowat=16384" >> /etc/sysctl.conf
-    else
-        sed -i 's/^net.ipv4.tcp_notsent_lowat=.*/net.ipv4.tcp_notsent_lowat=16384/' /etc/sysctl.conf
-    fi
+            echo "正在优化内核参数..."
+            # 检查是否存在net.ipv4.tcp_fastopen=3，如果存在则注释掉
+            if grep -q "^net.ipv4.tcp_fastopen=3" /etc/sysctl.conf; then
+                sed -i 's/^net.ipv4.tcp_fastopen=3/#net.ipv4.tcp_fastopen=3/' /etc/sysctl.conf
+            fi
 
-    # 添加net.core.default_qdisc=fq和net.ipv4.tcp_congestion_control=bbr到/etc/sysctl.conf
-    if ! grep -q "^net.core.default_qdisc=fq" /etc/sysctl.conf; then
-        echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
-    fi
+            # 添加net.ipv4.tcp_slow_start_after_idle=0和net.ipv4.tcp_notsent_lowat=16384到/etc/sysctl.conf
+            if ! grep -q "^net.ipv4.tcp_slow_start_after_idle" /etc/sysctl.conf; then
+                echo "net.ipv4.tcp_slow_start_after_idle=0" >> /etc/sysctl.conf
+            else
+                sed -i 's/^net.ipv4.tcp_slow_start_after_idle=.*/net.ipv4.tcp_slow_start_after_idle=0/' /etc/sysctl.conf
+            fi
 
-    if ! grep -q "^net.ipv4.tcp_congestion_control=bbr" /etc/sysctl.conf; then
-        echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
-    fi
+            if ! grep -q "^net.ipv4.tcp_notsent_lowat" /etc/sysctl.conf; then
+                echo "net.ipv4.tcp_notsent_lowat=16384" >> /etc/sysctl.conf
+            else
+                sed -i 's/^net.ipv4.tcp_notsent_lowat=.*/net.ipv4.tcp_notsent_lowat=16384/' /etc/sysctl.conf
+            fi
 
-    # 重新加载系统设置
-    sysctl -p
+            # 添加net.core.default_qdisc=fq和net.ipv4.tcp_congestion_control=bbr到/etc/sysctl.conf
+            if ! grep -q "^net.core.default_qdisc=fq" /etc/sysctl.conf; then
+                echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
+            fi
 
-    # 检查修改是否成功
-    if grep -q "^net.ipv4.tcp_slow_start_after_idle=0" /etc/sysctl.conf &&
-       grep -q "^net.ipv4.tcp_notsent_lowat=16384" /etc/sysctl.conf &&
-       grep -q "^net.core.default_qdisc=fq" /etc/sysctl.conf &&
-       grep -q "^net.ipv4.tcp_congestion_control=bbr" /etc/sysctl.conf; then
-       echo "内核参数优化成功。"
-    else
-        echo "内核参数优化失败，请检查配置文件。"
-        # 恢复备份文件
-        mv /etc/sysctl.conf.bak /etc/sysctl.conf
-        return 1
-    fi
+            if ! grep -q "^net.ipv4.tcp_congestion_control=bbr" /etc/sysctl.conf; then
+                echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
+            fi
+
+            # 重新加载系统设置
+            sysctl -p
+
+            # 检查修改是否成功
+            if grep -q "^net.ipv4.tcp_slow_start_after_idle=0" /etc/sysctl.conf &&
+            grep -q "^net.ipv4.tcp_notsent_lowat=16384" /etc/sysctl.conf &&
+            grep -q "^net.core.default_qdisc=fq" /etc/sysctl.conf &&
+            grep -q "^net.ipv4.tcp_congestion_control=bbr" /etc/sysctl.conf; then
+            echo "内核参数优化成功。"
+            else
+                echo "内核参数优化失败，请检查配置文件。"
+                # 恢复备份文件
+                mv /etc/sysctl.conf.bak /etc/sysctl.conf
+                return 1
+            fi
+            ;;
+        n|N)
+            echo "取消内核参数优化。"
+            ;;
+        *)
+            echo "无效的选项。"
+            return 1
+            ;;
+    esac
 }
 
 
