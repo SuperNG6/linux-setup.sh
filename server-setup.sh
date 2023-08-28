@@ -422,6 +422,9 @@ set_virtual_memory() {
 
 # 修改swap使用阈值
 modify_swap_usage_threshold() {
+
+    echo "当前系统的vm.swappiness值：$(cat /proc/sys/vm/swappiness)"
+
     echo "正在修改swap使用阈值..."
 
     read -p "请输入要设置的vm.swappiness值（0-100之间）：" swap_value
