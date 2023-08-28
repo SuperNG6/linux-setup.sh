@@ -15,6 +15,7 @@ check_dialog_installation() {
     fi
 }
 
+
 # 获取操作系统信息
 get_os_info() {
     # 忽略大小写匹配
@@ -46,6 +47,7 @@ get_os_info() {
     fi
 }
 
+
 # 检查已安装的防火墙类型
 check_firewall() {
     if command -v ufw &>/dev/null; then
@@ -60,6 +62,7 @@ check_firewall() {
         echo "unknown"  # 返回 unknown 表示未安装支持的防火墙工具
     fi
 }
+
 
 # 根据已安装的防火墙显示当前开放的端口
 display_open_ports() {
@@ -148,6 +151,7 @@ install_components() {
     echo "关键组件安装成功。"
 }
 
+
 # 添加已登记设备的公钥
 add_public_key() {
     echo "请输入公钥："
@@ -208,6 +212,7 @@ disable_ssh_password_login() {
         return 1
     fi
 }
+
 
 # 添加docker工具脚本
 add_docker_tools() {
@@ -305,8 +310,6 @@ remove_all_swap() {
 
     echo "所有交换空间文件和分区已删除。"
 }
-
-
 
 
 # 设置虚拟内存
@@ -420,6 +423,7 @@ set_virtual_memory() {
     fi
 }
 
+
 # 修改swap使用阈值
 modify_swap_usage_threshold() {
 
@@ -461,6 +465,7 @@ modify_swap_usage_threshold() {
         return 1
     fi
 }
+
 
 # 优化内核参数
 optimize_kernel_parameters() {
@@ -530,6 +535,7 @@ optimize_kernel_parameters() {
 }
 
 
+# 安装XanMod内核
 install_xanmod_kernel() {
     echo "当前内核版本：$(uname -r)"
 
@@ -632,6 +638,7 @@ install_xanmod_kernel() {
             ;;
     esac
 }
+
 
 # 卸载XanMod内核并恢复原有内核，并更新Grub引导配置
 uninstall_xanmod_kernel() {
@@ -755,6 +762,7 @@ set_firewall_ports() {
     echo -e "============================================="
     echo "1. 开放防火墙端口"
     echo "2. 关闭防火墙端口"
+    echo "q. 返回主菜单"
     read -p "请输入操作选项 (1/2): " action
 
     case $action in
@@ -824,6 +832,9 @@ set_firewall_ports() {
                 echo "关闭 $protocol 端口 $port 成功。"
             done
             ;;
+        q|Q)
+            return 1
+            ;;
         *)
             echo "无效的操作选项。"
             return 1
@@ -868,6 +879,7 @@ display_menu() {
     echo "-----------------------------------"
     echo -e "${BOLD}输入${RESET} 'q' ${BOLD}退出${RESET}"
 }
+
 
 # 显示操作菜单选项
 display_dialog_menu() {
@@ -920,6 +932,7 @@ handle_choice() {
     read -p "按 Enter 键回到主菜单..."
 }
 
+
 # 主函数，接受选项并执行相应的脚本
 main() {
     trap cleanup EXIT
@@ -945,6 +958,7 @@ main() {
     echo "欢迎再次使用本脚本！"
     sleep 1s
 }
+
 
 # 清理函数，在脚本退出时执行
 cleanup() {
