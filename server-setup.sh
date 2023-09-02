@@ -152,7 +152,7 @@ install_components() {
 }
 
 
-# 添加已登记设备的公钥
+# 添加要登记设备的公钥
 add_public_key() {
     echo "请输入公钥："
     read public_key
@@ -284,55 +284,108 @@ add_docker_tools() {
 }
 
 
-
-# 函数：删除所有交换空间文件和分区
+# 删除所有 swap 文件和分区
 remove_all_swap() {
-    # 获取所有交换空间文件的列表
+    # 获取所有 swap 文件的列表
     swap_files=$(swapon -s | awk '{if($1!~"^Filename"){print $1}}')
 
-    # 遍历并禁用、删除每个交换空间文件
-    for file in $swap_files; do
-        echo "正在禁用并删除交换空间文件：$file"
-        swapoff "$file"
-        rm -f "$file"
-        echo "已删除交换空间文件：$file"
+    # 获取所有 swap 分区的列表
+    swap_partitions=$(grep -E '^\S+\s+\S+\sswap\s+' /proc/swaps | awk '{print $1}')
+
+    # 遍历并禁用、删除每个 swap 文件和分区
+    for item in $swap_files $swap_partitions; do
+        echo "正在禁用并删除 swap ：$item"
+        swapoff "$item"
+        rm -f "$item"
+        echo "已删除 swap ：$item"
     done
+
+    echo "所有 swap 文件和分区已删除。"
+}
+
+
+# 清理 swap 缓存
+cleanup_swap() {
+    echo "正在检查当前交换空间..."
+    echo "=========================================="
+    # 获取所有交换空间文件的列表
+    swap_files=$(swapon -s | awk '{if($1!~"^Filename"){print $1}}')
 
     # 获取所有交换分区的列表
     swap_partitions=$(grep -E '^\S+\s+\S+\sswap\s+' /proc/swaps | awk '{print $1}')
 
-    # 遍历并禁用每个交换分区
-    for partition in $swap_partitions; do
-        echo "正在禁用交换分区：$partition"
-        swapoff "$partition"
-        echo "已禁用交换分区：$partition"
-    done
+    # 获取物理内存和已使用的物理内存
+    total_memory=$(free -m | awk 'NR==2{print $2}')
+    used_memory=$(free -m | awk 'NR==2{print $3}')
 
-    echo "所有交换空间文件和分区已删除。"
-}
+    # 获取已使用的交换空间
+    used_swap=$(free -m | awk 'NR==3{print $3}')
 
-
-# 设置虚拟内存
-set_virtual_memory() {
-    echo "正在检查当前交换空间..."
-    swap_files=$(swapon -s | awk '{if($1!~"^Filename"){print $1}}')
+    # 计算已使用的物理内存和虚拟内存占物理内存的百分比
+    used_memory_percent=$(( (used_memory) * 100 / total_memory ))
+    total_used_percent=$(( (used_memory + used_swap) * 100 / total_memory ))
 
     if [ -n "$swap_files" ]; then
         echo "当前交换空间大小如下："
         swapon --show
-        echo "是否要删除已存在的交换空间？"
+        echo "=========================================="
+        echo "物理内存使用率：$used_memory_percent% ( $used_memory MB/ $total_memory MB )"
+        echo "已使用的物理内存和虚拟内存占物理内存的百分比: $total_used_percent% ( $((used_memory + used_swap)) MB / $total_memory MB )"
+
+        # 检测是否可以清理 swap 缓存
+        if [ $total_used_percent -gt 80 ]; then
+            echo "不建议清理 swap 缓存，因为物理内存使用量和 swap 使用量总和已经超过物理内存的80%。"
+            echo "如果清理 swap 缓存，可能导致系统内存不足，影响性能和稳定性。"
+        else
+            echo "是否要清理 swap 缓存"
+            read -p "请输入 y 或 n：" cleanup_choice
+
+            case $cleanup_choice in
+                y|Y)
+                    # 遍历并清理每个交换空间文件和分区
+                    for item in $swap_files $swap_partitions; do
+                        echo "正在清理 swap 缓存：$item"
+                        swapoff "$item"
+                        echo "已清理 swap 缓存：$item"
+                        swapon "$item"
+                    done
+
+                    echo "所有的 swap 缓存已清理。"
+                    ;;
+                n|N)
+                    echo "不需要清理 swap 缓存"
+                    ;;
+                *)
+                    echo "无效的选项，保留已存在的交换空间。"
+                    ;;
+            esac
+        fi
+    fi
+}
+
+
+
+# 设置虚拟内存
+set_virtual_memory() {
+    echo "正在检查当前 swap ..."
+    swap_files=$(swapon -s | awk '{if($1!~"^Filename"){print $1}}')
+
+    if [ -n "$swap_files" ]; then
+        echo "当前 swap 大小如下："
+        swapon --show
+        echo "是否要删除已存在的 swap ？"
         read -p "请输入 y 或 n：" remove_choice
 
         case $remove_choice in
             y|Y)
-                # 调用函数以删除所有交换空间文件和分区
+                # 调用函数以删除所有 swap 文件和分区
                 remove_all_swap
                 ;;
             n|N)
-                echo "保留已存在的交换空间。"
+                echo "保留已存在的 swap 。"
                 ;;
             *)
-                echo "无效的选项，保留已存在的交换空间。"
+                echo "无效的选项，保留已存在的 swap 。"
                 ;;
         esac
     fi
@@ -382,7 +435,7 @@ set_virtual_memory() {
     # 检查是否已经存在交换文件
     if [ -n "$swap_files" ]; then
         echo "已经存在交换文件。删除现有的交换文件..."
-        # 调用函数以删除所有交换空间文件和分区
+        # 调用函数以删除所有 swap 文件和分区
         remove_all_swap
     fi
 
@@ -411,7 +464,7 @@ set_virtual_memory() {
         if [ $? -eq 0 ]; then
             echo "/swap swap swap defaults 0 0" >> /etc/fstab
             echo "虚拟内存设置成功。"
-            echo "当前交换空间大小如下："
+            echo "当前 swap 大小如下："
             swapon -s | grep '/swap'
         else
             echo "交换文件创建成功，但启用交换失败，请检查命令是否执行成功。"
@@ -859,23 +912,24 @@ display_menu() {
     echo -e "${BOLD}选项${RESET}     ${BOLD}描述${RESET}"
     echo "-----------------------------------"
     echo -e "${GREEN} 1${RESET}       安装必要组件"
-    echo -e "${GREEN} 2${RESET}       添加已登记设备的公钥"
+    echo -e "${GREEN} 2${RESET}       添加要登记设备的公钥"
     echo -e "${GREEN} 3${RESET}       关闭 SSH 密码登录"
-    echo -e "${GREEN} 4${RESET}       添加 Docker 工具脚本"
-    echo -e "${GREEN} 5${RESET}       设置虚拟内存"
-    echo -e "${GREEN} 6${RESET}       修改 Swap 使用阈值"
-    echo -e "${GREEN} 7${RESET}       优化内核参数"
+    echo -e "${GREEN} 4${RESET}       修改 SSH 端口号"
+    echo -e "${GREEN} 5${RESET}       添加 Docker 工具脚本"
+    echo -e "${GREEN} 6${RESET}       设置 Swap 大小"
+    echo -e "${GREEN} 7${RESET}       修改 Swap 使用阈值"
+    echo -e "${GREEN} 8${RESET}       清理 Swap 缓存"
+    echo -e "${GREEN} 9${RESET}       优化内核参数"
 
     os_type=$(get_os_info)
     case $os_type in
         "Debian/Ubuntu")
-            echo -e "${GREEN} 8${RESET}       下载并安装 XanMod 内核 (BBRv3)"
-            echo -e "${GREEN} 9${RESET}       卸载 XanMod 内核，并恢复原有内核"
+            echo -e "${GREEN} 10${RESET}       下载并安装 XanMod 内核 (BBRv3)"
+            echo -e "${GREEN} 11${RESET}       卸载 XanMod 内核，并恢复原有内核"
             ;;
     esac
 
-    echo -e "${GREEN}10${RESET}       修改 SSH 端口号"
-    echo -e "${GREEN}11${RESET}       设置防火墙端口"
+    echo -e "${GREEN} 12${RESET}       设置防火墙端口"
     echo "-----------------------------------"
     echo -e "${BOLD}输入${RESET} 'q' ${BOLD}退出${RESET}"
 }
@@ -889,22 +943,23 @@ display_dialog_menu() {
         --backtitle \"GitHub: https://github.com/SuperNG6/linux-setup.sh\" \
         --menu \"请选择以下选项：\" 15 60 10 \
         1 \"安装必要组件\" \
-        2 \"添加已登记设备的公钥\" \
+        2 \"添加要登记设备的公钥\" \
         3 \"关闭 SSH 密码登录\" \
-        4 \"添加 Docker 工具脚本\" \
-        5 \"设置虚拟内存\" \
-        6 \"修改 Swap 使用阈值\" \
-        7 \"优化内核参数\""
+        4 \"修改 SSH 端口号\" \
+        5 \"添加 Docker 工具脚本\" \
+        6 \"设置 Swap 大小\" \
+        7 \"修改 Swap 使用阈值\" \
+        8 \"清理 Swap 缓存\" \
+        9 \"优化内核参数\""
 
     if [[ $os_type == "Debian/Ubuntu" ]]; then
         dialog_cmd="${dialog_cmd} \
-        8 \"下载并安装 XanMod 内核 (BBRv3)\" \
-        9 \"卸载 XanMod 内核，并恢复原有内核\""
+        10 \"下载并安装 XanMod 内核 (BBRv3)\" \
+        11 \"卸载 XanMod 内核，并恢复原有内核\""
     fi
 
     dialog_cmd="${dialog_cmd} \
-        10 \"修改 SSH 端口号\" \
-        11 \"设置防火墙端口\" \
+        12 \"设置防火墙端口\" \
         q \"退出\" 2> menu_choice.txt"
 
     eval "$dialog_cmd"
@@ -918,14 +973,15 @@ handle_choice() {
         1) install_components ;;
         2) add_public_key ;;
         3) disable_ssh_password_login ;;
-        4) add_docker_tools ;;
-        5) set_virtual_memory ;;
-        6) modify_swap_usage_threshold ;;
-        7) optimize_kernel_parameters ;;
-        8) install_xanmod_kernel ;;
-        9) uninstall_xanmod_kernel ;;
-        10) modify_ssh_port ;;
-        11) set_firewall_ports ;;
+        4) modify_ssh_port ;;
+        5) add_docker_tools ;;
+        6) set_virtual_memory ;;
+        7) modify_swap_usage_threshold ;;
+        8) cleanup_swap ;;
+        9) optimize_kernel_parameters ;;
+        10) install_xanmod_kernel ;;
+        11) uninstall_xanmod_kernel ;;
+        12) set_firewall_ports ;;
         q|Q) return 1 ;; # 返回非零值来退出循环
         *) echo "无效的选项，请输入合法的选项数字。" ;;
     esac
@@ -956,7 +1012,6 @@ main() {
         
     done
     echo "欢迎再次使用本脚本！"
-    sleep 1s
 }
 
 

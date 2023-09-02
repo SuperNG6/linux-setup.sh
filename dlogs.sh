@@ -9,6 +9,7 @@ if [ ${#containers[@]} -eq 0 ]; then
   exit 1
 fi
 
+
 # 打印选项菜单
 echo "请选择要查看日志的容器："
 for i in "${!containers[@]}"; do
