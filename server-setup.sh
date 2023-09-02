@@ -898,6 +898,13 @@ set_firewall_ports() {
 
 # 显示操作菜单选项
 display_menu() {
+    # 获取当前Linux发行版本（包括版本号）
+    linux_version=$(awk -F= '/^PRETTY_NAME=/{gsub(/"/, "", $2); print $2}' /etc/os-release)
+    # 获取当前内核版本
+    kernel_version=$(uname -r)
+    # 获取当前内存使用率（以百分比形式）
+    memory_usage=$(free | awk '/Mem/{printf("%.2f", $3/$2 * 100)}')
+
 
     # 设置颜色和样式
     GREEN='\033[0;32m'
@@ -907,7 +914,13 @@ display_menu() {
     clear
     echo -e "${BOLD}欢迎使用 SuperNG6 的 Linux 配置工具${RESET}"
     echo -e "${BOLD}GitHub：https://github.com/SuperNG6/linux-setup.sh${RESET}"
-    echo "-----------------------------------"
+    # 在一行上显示当前CPU使用率、内存使用率、Linux发行版本和内核版本，并使用预定义的颜色和样式
+    echo -e "${BOLD}-----------------------------------"
+    echo -e "当前Linux发行版本：${GREEN}${BOLD}${linux_version}${RESET}"
+    echo -e "当前内核版本：${GREEN}${BOLD}${kernel_version}${RESET}"
+    echo -e "当前内存使用率：${GREEN}${BOLD}${memory_usage}%${RESET}"
+    # 菜单选项
+    echo -e "${BOLD}-----------------------------------"
     echo -e "请选择以下选项：\n"
     echo -e "${BOLD}选项${RESET}     ${BOLD}描述${RESET}"
     echo "-----------------------------------"
@@ -924,12 +937,12 @@ display_menu() {
     os_type=$(get_os_info)
     case $os_type in
         "Debian/Ubuntu")
-            echo -e "${GREEN} 10${RESET}       下载并安装 XanMod 内核 (BBRv3)"
-            echo -e "${GREEN} 11${RESET}       卸载 XanMod 内核，并恢复原有内核"
+            echo -e "${GREEN} 10${RESET}      下载并安装 XanMod 内核 (BBRv3)"
+            echo -e "${GREEN} 11${RESET}      卸载 XanMod 内核，并恢复原有内核"
             ;;
     esac
 
-    echo -e "${GREEN} 12${RESET}       设置防火墙端口"
+    echo -e "${GREEN} 12${RESET}      设置防火墙端口"
     echo "-----------------------------------"
     echo -e "${BOLD}输入${RESET} 'q' ${BOLD}退出${RESET}"
 }
@@ -939,8 +952,20 @@ display_menu() {
 display_dialog_menu() {
     os_type=$(get_os_info)
 
-    dialog_cmd="dialog --clear --title \"SuperNG6 的 Linux 配置工具\" \
-        --backtitle \"GitHub: https://github.com/SuperNG6/linux-setup.sh\" \
+    # 获取当前Linux发行版本（包括版本号）
+    linux_version=$(awk -F= '/^PRETTY_NAME=/{gsub(/"/, "", $2); print $2}' /etc/os-release)
+    # 获取当前内核版本
+    kernel_version=$(uname -r)
+    # 获取当前内存使用率（以百分比形式）
+    memory_usage=$(free | awk '/Mem/{printf("%.2f", $3/$2 * 100)}')
+
+    backtitle="GitHub: https://github.com/SuperNG6/linux-setup.sh \
+    当前Linux发行版本：${linux_version} \
+    当前内核版本：${kernel_version} \
+    当前内存使用率：${memory_usage}%"
+
+    dialog_cmd="dialog --clear --title \"SuperNG6 的Linux配置工具\" \
+        --backtitle \"$backtitle\" \
         --menu \"请选择以下选项：\" 15 60 10 \
         1 \"安装必要组件\" \
         2 \"添加要登记设备的公钥\" \
@@ -1012,6 +1037,7 @@ main() {
         
     done
     echo "欢迎再次使用本脚本！"
+    sleep 0.5s
 }
 
 
