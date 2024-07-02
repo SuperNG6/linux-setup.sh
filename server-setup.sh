@@ -725,6 +725,82 @@ uninstall_xanmod_kernel() {
     fi
 }
 
+# 安装 Debian Cloud 内核
+install_debian_cloud_kernel() {
+    echo "INFO" "开始安装 Debian Cloud 内核"
+    echo "正在更新软件包列表..."
+    apt update -y
+
+    echo "当前系统内核版本："
+    dpkg -l | grep linux-image
+
+    echo "查找最新的 Cloud 内核版本..."
+    latest_cloud_kernel=$(apt-cache search linux-image | grep -E 'linux-image-[0-9]+\.[0-9]+\.[0-9]+-[0-9]+-cloud-amd64 ' | grep -v unsigned | sort -V | tail -n 1 | awk '{print $1}')
+    latest_cloud_headers=${latest_cloud_kernel/image/headers}
+
+    if [ -z "$latest_cloud_kernel" ]; then
+        log "ERROR" "未找到可用的 Cloud 内核版本"
+        echo "未找到可用的 Cloud 内核版本。"
+        return 1
+    fi
+
+    echo "找到最新的 Cloud 内核版本：$latest_cloud_kernel"
+    read -p "是否安装此版本？(y/n): " install_choice
+
+    if [[ $install_choice == [yY] ]]; then
+        echo "正在安装 Cloud 内核..."
+        apt install $latest_cloud_headers $latest_cloud_kernel -y
+        if [ $? -eq 0 ]; then
+            echo "更新 GRUB..."
+            update-grub
+            log "INFO" "Debian  Cloud 内核安装成功"
+            echo "Debian  Cloud 内核安装成功。请重启系统以使用新内核。"
+        else
+            log "ERROR" "Debian  Cloud 内核安装失败"
+            echo "Debian  Cloud 内核安装失败。"
+        fi
+    else
+        echo "取消安装 Cloud 内核。"
+    fi
+}
+
+# 卸载 Debian Cloud 内核
+uninstall_debian_cloud_kernel() {
+    echo "INFO" "开始卸载 Debian Cloud 内核"
+    echo "当前系统内核版本："
+    dpkg -l | grep linux-image
+
+    cloud_kernels=$(dpkg -l | grep -E 'linux-image-[0-9]+\.[0-9]+\.[0-9]+-[0-9]+-cloud-amd64' | awk '{print $2}')
+    cloud_headers=$(echo "$cloud_kernels" | sed 's/image/headers/g')
+
+    if [ -z "$cloud_kernels" ]; then
+        echo "未检测到已安装的 Cloud 内核。"
+        return
+    fi
+
+    echo "检测到以下 Cloud 内核："
+    echo "$cloud_kernels"
+    echo "对应的 headers："
+    echo "$cloud_headers"
+    read -p "是否卸载这些 Cloud 内核并恢复原有内核？(y/n): " uninstall_choice
+
+    if [[ $uninstall_choice == [yY] ]]; then
+        echo "正在卸载 Cloud 内核..."
+        apt remove $cloud_kernels $cloud_headers -y
+        apt autoremove -y
+        if [ $? -eq 0 ]; then
+            echo "更新 GRUB..."
+            update-grub
+            log "INFO" "Debian Cloud 内核卸载成功"
+            echo "Debian Cloud 内核卸载成功。请重启系统以使用原有内核。"
+        else
+            log "ERROR" "Debian Cloud 内核卸载失败"
+            echo "Debian Cloud 内核卸载失败。"
+        fi
+    else
+        echo "取消卸载 Cloud 内核。"
+    fi
+}
 
 # 修改SSH端口号
 modify_ssh_port() {
@@ -939,10 +1015,14 @@ display_menu() {
         "Debian/Ubuntu")
             echo -e "${GREEN} 10${RESET}      下载并安装 XanMod 内核 (BBRv3)"
             echo -e "${GREEN} 11${RESET}      卸载 XanMod 内核，并恢复原有内核"
+            if [[ $os_type == "Debian"* ]]; then
+                echo -e "${GREEN} 12${RESET}      安装 Debian Cloud 内核"
+                echo -e "${GREEN} 13${RESET}      卸载 Debian Cloud 内核，并恢复原有内核"
+            fi
             ;;
     esac
 
-    echo -e "${GREEN} 12${RESET}      设置防火墙端口"
+    echo -e "${GREEN} 14${RESET}      设置防火墙端口"
     echo "-----------------------------------"
     echo -e "${BOLD}输入${RESET} 'q' ${BOLD}退出${RESET}"
 }
@@ -981,10 +1061,16 @@ display_dialog_menu() {
         dialog_cmd="${dialog_cmd} \
         10 \"下载并安装 XanMod 内核 (BBRv3)\" \
         11 \"卸载 XanMod 内核，并恢复原有内核\""
+        
+        if [[ $os_type == "Debian"* ]]; then
+            dialog_cmd="${dialog_cmd} \
+            12 \"安装 Debian Cloud 内核\" \
+            13 \"卸载 Debian Cloud 内核，并恢复原有内核\""
+        fi
     fi
 
     dialog_cmd="${dialog_cmd} \
-        12 \"设置防火墙端口\" \
+        14 \"设置防火墙端口\" \
         q \"退出\" 2> menu_choice.txt"
 
     eval "$dialog_cmd"
@@ -1006,7 +1092,9 @@ handle_choice() {
         9) optimize_kernel_parameters ;;
         10) install_xanmod_kernel ;;
         11) uninstall_xanmod_kernel ;;
-        12) set_firewall_ports ;;
+        12) install_debian_cloud_kernel ;;
+        13) uninstall_debian_cloud_kernel ;;
+        14) set_firewall_ports ;;
         q|Q) return 1 ;; # 返回非零值来退出循环
         *) echo "无效的选项，请输入合法的选项数字。" ;;
     esac
