@@ -62,6 +62,14 @@ CentOS、Fedora 和 Arch Linux 请自测，已做兼容处理，未测试，并�
 
 选择此选项可以卸载XanMod内核，并恢复原有内核。
 
+## 选项 12：安装Debian Cloud内核
+
+选择此选项可以更换Debian Cloud内核，降低内存使用。
+
+## 选项 13：卸载Debian Cloud内核
+
+选择此选项可以卸载Debian Cloud内核。
+
 ## 选项 12：设置防火墙端口
 
 选择此选项可以设置防火墙端口（少部分VPS需要该功能，如Vultr的ubuntu系统）。
