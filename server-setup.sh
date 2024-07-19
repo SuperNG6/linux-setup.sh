@@ -522,69 +522,67 @@ modify_swap_usage_threshold() {
 
 # 优化内核参数
 optimize_kernel_parameters() {
-    read -p "您确定要优化内核参数吗？(y/n): " optimize_choice
+  # 询问用户是否继续
+  read -p "您确定要优化内核参数吗？(y/n): " choice
 
-    case $optimize_choice in
-        y|Y)
-            echo "备份原始配置内核参数..."
-            # 备份原始配置文件
-            cp /etc/sysctl.conf /etc/sysctl.conf.bak
+  case $choice in
+    y | Y)
+        echo "正在备份原始内核参数..."
+        cp /etc/sysctl.conf /etc/sysctl.conf.bak
 
-            # 备份原始配置文件
-            cp /etc/sysctl.conf /etc/sysctl.conf.bak
+        echo "正在优化内核参数..."
 
-            echo "正在优化内核参数..."
-            # 检查是否存在net.ipv4.tcp_fastopen=3，如果存在则注释掉
-            if grep -q "^net.ipv4.tcp_fastopen=3" /etc/sysctl.conf; then
-                sed -i 's/^net.ipv4.tcp_fastopen=3/#net.ipv4.tcp_fastopen=3/' /etc/sysctl.conf
-            fi
+        # 定义需要设置的参数
+        parameters=(
+            "net.ipv4.tcp_slow_start_after_idle=0"
+            "net.ipv4.tcp_notsent_lowat=16384"
+            "net.core.default_qdisc=fq"
+            "net.ipv4.tcp_congestion_control=bbr"
+            "net.ipv4.tcp_no_metrics_save=1"
+            "net.ipv4.tcp_ecn=0"
+            "net.ipv4.tcp_frto=0"
+            "net.ipv4.tcp_mtu_probing=0"
+            "net.ipv4.tcp_rfc1337=0"
+            "net.ipv4.tcp_sack=1"
+            "net.ipv4.tcp_fack=1"
+            "net.ipv4.tcp_window_scaling=1"
+            "net.ipv4.tcp_adv_win_scale=1"
+            "net.ipv4.tcp_moderate_rcvbuf=1"
+            "net.core.rmem_max=33554432"
+            "net.core.wmem_max=33554432"
+            "net.ipv4.tcp_rmem='4096 87380 33554432'"
+            "net.ipv4.tcp_wmem='4096 16384 33554432'"
+            "net.ipv4.udp_rmem_min=8192"
+            "net.ipv4.udp_wmem_min=8192"
+        )
 
-            # 添加net.ipv4.tcp_slow_start_after_idle=0和net.ipv4.tcp_notsent_lowat=16384到/etc/sysctl.conf
-            if ! grep -q "^net.ipv4.tcp_slow_start_after_idle" /etc/sysctl.conf; then
-                echo "net.ipv4.tcp_slow_start_after_idle=0" >> /etc/sysctl.conf
+        # 注释掉 net.ipv4.tcp_fastopen=3
+        sed -i 's/^net.ipv4.tcp_fastopen=3/#net.ipv4.tcp_fastopen=3/' /etc/sysctl.conf
+
+        # 设置或更新参数
+        for param in "${parameters[@]}"; do
+            key="${param%=*}"
+            value="${param#*=}"
+            if grep -q "^$key" /etc/sysctl.conf; then
+                sed -i "s/^$key=.*/$param/" /etc/sysctl.conf
             else
-                sed -i 's/^net.ipv4.tcp_slow_start_after_idle=.*/net.ipv4.tcp_slow_start_after_idle=0/' /etc/sysctl.conf
+                echo "$param" >> /etc/sysctl.conf
             fi
+        done
 
-            if ! grep -q "^net.ipv4.tcp_notsent_lowat" /etc/sysctl.conf; then
-                echo "net.ipv4.tcp_notsent_lowat=16384" >> /etc/sysctl.conf
-            else
-                sed -i 's/^net.ipv4.tcp_notsent_lowat=.*/net.ipv4.tcp_notsent_lowat=16384/' /etc/sysctl.conf
-            fi
+        # 重新加载系统设置
+        sysctl -p
 
-            # 添加net.core.default_qdisc=fq和net.ipv4.tcp_congestion_control=bbr到/etc/sysctl.conf
-            if ! grep -q "^net.core.default_qdisc=fq" /etc/sysctl.conf; then
-                echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
-            fi
-
-            if ! grep -q "^net.ipv4.tcp_congestion_control=bbr" /etc/sysctl.conf; then
-                echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
-            fi
-
-            # 重新加载系统设置
-            sysctl -p
-
-            # 检查修改是否成功
-            if grep -q "^net.ipv4.tcp_slow_start_after_idle=0" /etc/sysctl.conf &&
-            grep -q "^net.ipv4.tcp_notsent_lowat=16384" /etc/sysctl.conf &&
-            grep -q "^net.core.default_qdisc=fq" /etc/sysctl.conf &&
-            grep -q "^net.ipv4.tcp_congestion_control=bbr" /etc/sysctl.conf; then
-            echo "内核参数优化成功。"
-            else
-                echo "内核参数优化失败，请检查配置文件。"
-                # 恢复备份文件
-                mv /etc/sysctl.conf.bak /etc/sysctl.conf
-                return 1
-            fi
-            ;;
-        n|N)
-            echo "取消内核参数优化。"
-            ;;
-        *)
-            echo "无效的选项。"
-            return 1
-            ;;
-    esac
+        echo "内核参数优化完成。"
+        ;;
+    n | N)
+        echo "取消内核参数优化。"
+        ;;
+    *)
+        echo "无效的选项。"
+        return 1
+        ;;
+  esac
 }
 
 
