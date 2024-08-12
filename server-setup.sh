@@ -1021,10 +1021,149 @@ display_menu() {
     esac
 
     echo -e "${GREEN} 14${RESET}      设置防火墙端口"
+    echo -e "${GREEN} 15${RESET}      配置 ZRAM"
     echo "-----------------------------------"
     echo -e "${BOLD}输入${RESET} 'q' ${BOLD}退出${RESET}"
 }
 
+# ZRAM 配置函数
+configure_zram_menu() {
+    while true; do
+        clear
+        echo "ZRAM 配置"
+        echo "----------------"
+
+        # 显示当前 ZRAM 使用情况
+        if command -v zramctl &> /dev/null; then
+            echo "当前 ZRAM 使用情况:"
+            zramctl | awk 'NR>1 {total+=$3; used+=$4} END {printf "总大小: %.2f GB, 使用: %.2f GB, 使用率: %.2f%%\n", total/1024/1024/1024, used/1024/1024/1024, used/total*100}'
+        else
+            echo "当前未配置 ZRAM"
+        fi
+
+        echo ""
+        echo "请选择操作:"
+        echo "1. 安装并配置 ZRAM"
+        echo "2. 卸载 ZRAM"
+        echo "3. 返回主菜单"
+
+        read -p "请输入选项数字: " choice
+
+        case $choice in
+            1)
+                install_and_configure_zram
+                ;;
+            2)
+                uninstall_zram
+                ;;
+            3)
+                return
+                ;;
+            *)
+                echo "无效的选项，请重新选择。"
+                ;;
+        esac
+
+        read -p "按 Enter 键继续..."
+    done
+}
+
+# 安装并配置 ZRAM
+install_and_configure_zram() {
+    os_type=$(get_os_info)
+    echo "正在安装和配置 ZRAM..."
+    
+    # 安装 ZRAM 工具
+    case $os_type in
+        Debian/Ubuntu)
+            apt update && apt install -y zram-tools
+            ;;
+        CentOS|Fedora)
+            dnf install -y zram-generator
+            ;;
+        Arch)
+            pacman -Sy --noconfirm zram-generator
+            ;;
+        *)
+            echo "不支持的操作系统: $os_type"
+            return 1
+            ;;
+    esac
+
+    # 获取用户输入的 ZRAM 大小百分比
+    while true; do
+        read -p "请输入 ZRAM 大小占物理内存的百分比 (1-100): " zram_percent
+        if [[ "$zram_percent" =~ ^[0-9]+$ ]] && [ "$zram_percent" -ge 1 ] && [ "$zram_percent" -le 100 ]; then
+            break
+        else
+            echo "无效的输入，请输入 1 到 100 之间的整数。"
+        fi
+    done
+
+    # 获取物理内存大小（KB）
+    total_mem_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+    # 计算 ZRAM 大小（MB）
+    zram_size_mb=$((total_mem_kb * zram_percent / 100 / 1024))
+
+    # 获取 CPU 核心数
+    cpu_cores=$(nproc)
+
+    case $os_type in
+        Debian/Ubuntu)
+            cat > /etc/default/zramswap << EOF
+ALGO=zstd
+PERCENT=$zram_percent
+DEVICES=$cpu_cores
+EOF
+            systemctl restart zramswap
+            ;;
+        CentOS|Fedora|Arch)
+            cat > /etc/systemd/zram-generator.conf << EOF
+[zram0]
+zram-size = ${zram_size_mb}M
+compression-algorithm = zstd
+EOF
+            systemctl restart systemd-zram-setup@zram0.service
+            ;;
+    esac
+
+    echo "ZRAM 安装和配置完成。设置为使用 $cpu_cores 个设备，总大小为 ${zram_size_mb}MB (物理内存的 ${zram_percent}%)，使用 zstd 压缩算法。"
+}
+
+# 卸载 ZRAM
+uninstall_zram() {
+    os_type=$(get_os_info)
+    echo "正在卸载 ZRAM..."
+    case $os_type in
+        Debian/Ubuntu)
+            apt remove -y zram-tools
+            ;;
+        CentOS|Fedora)
+            dnf remove -y zram-generator
+            ;;
+        Arch)
+            pacman -R --noconfirm zram-generator
+            ;;
+        *)
+            echo "不支持的操作系统: $os_type"
+            return 1
+            ;;
+    esac
+    
+    # 停止并禁用 ZRAM 服务
+    case $os_type in
+        Debian/Ubuntu)
+            systemctl stop zramswap
+            systemctl disable zramswap
+            ;;
+        CentOS|Fedora|Arch)
+            systemctl stop systemd-zram-setup@zram0.service
+            systemctl disable systemd-zram-setup@zram0.service
+            ;;
+    esac
+
+    echo "ZRAM 卸载完成。"
+}
 
 # 显示操作菜单选项
 display_dialog_menu() {
@@ -1072,6 +1211,13 @@ display_dialog_menu() {
         q \"退出\" 2> menu_choice.txt"
 
     eval "$dialog_cmd"
+
+    dialog_cmd="${dialog_cmd} \
+        15 \"配置 ZRAM\" \
+        q \"退出\" 2> menu_choice.txt"
+
+    eval "$dialog_cmd"
+
 }
 
 
@@ -1093,6 +1239,7 @@ handle_choice() {
         12) install_debian_cloud_kernel ;;
         13) uninstall_debian_cloud_kernel ;;
         14) set_firewall_ports ;;
+        15) configure_zram_menu ;;
         q|Q) return 1 ;; # 返回非零值来退出循环
         *) echo "无效的选项，请输入合法的选项数字。" ;;
     esac
