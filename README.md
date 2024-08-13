@@ -70,9 +70,16 @@ CentOS、Fedora 和 Arch Linux 请自测，已做兼容处理，未测试，并�
 
 选择此选项可以卸载Debian Cloud内核。
 
-## 选项 12：设置防火墙端口
+## 选项 14：设置防火墙端口
 
 选择此选项可以设置防火墙端口（少部分VPS需要该功能，如Vultr的ubuntu系统）。
+
+## 选项 15：配置ZRAM
+选择此选项可以进行ZRAM配置，大幅优化VPS高内存压力下的使用体验
+
+### dialog_menu
+去掉`display_dialog_menu`功能，维护两套菜单系统太复杂了，截图纪念
+![Xnip2024-08-13_13-45-29](https://cdn.jsdelivr.net/gh/SuperNG6/pic@master/uPic/2024-08-13/Xnip2024-08-13_13-45-29.jpg)
 
 ```
 ## 使用方法

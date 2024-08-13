@@ -6,15 +6,6 @@ if [ "$(id -u)" != "0" ]; then
     exit 1
 fi
 
-# 判断是否安装了 dialog 命令
-check_dialog_installation() {
-    if command -v dialog &>/dev/null; then
-        return 0 # 已安装
-    else
-        return 1 # 未安装
-    fi
-}
-
 
 # 获取操作系统信息
 get_os_info() {
@@ -969,6 +960,211 @@ set_firewall_ports() {
     esac
 }
 
+# 检查系统是否支持ZRAM
+check_zram_support() {
+    if [ -d "/sys/class/zram-control" ]; then
+        return 0  # 支持ZRAM
+    else
+        return 1  # 不支持ZRAM
+    fi
+}
+
+# 检查ZRAM是否已安装
+is_zram_installed() {
+    if lsmod | grep -q zram && command -v zramctl > /dev/null; then
+        return 0  # ZRAM已安装
+    else
+        return 1  # ZRAM未安装
+    fi
+}
+
+# 检查zram-tools是否已安装
+is_zram_tools_installed() {
+    if command -v zram-config > /dev/null; then
+        return 0  # zram-tools已安装
+    else
+        return 1  # zram-tools未安装
+    fi
+}
+
+# 安装zram-tools
+install_zram_tools() {
+    os_type=$(get_os_info)
+    case $os_type in
+        Debian/Ubuntu)
+            apt update && apt install -y zram-tools
+            ;;
+        CentOS|Fedora)
+            dnf install -y zram-generator
+            ;;
+        Arch)
+            pacman -Sy --noconfirm zram-generator
+            ;;
+        *)
+            echo "不支持的操作系统: $os_type"
+            return 1
+            ;;
+    esac
+}
+
+# 显示当前ZRAM配置和使用情况
+display_zram_status() {
+    if is_zram_installed; then
+        echo "ZRAM 概览:"
+        zramctl
+    else
+        echo "ZRAM 未安装或未配置。"
+    fi
+}
+
+# 配置ZRAM
+configure_zram() {
+    if ! is_zram_tools_installed; then
+        echo "正在安装ZRAM工具..."
+        install_zram_tools
+        if [ $? -ne 0 ]; then
+            echo "ZRAM工具安装失败。"
+            return 1
+        fi
+    fi
+
+    # 默认设置
+    default_percent=50
+    default_algo="zstd"
+    cpu_cores=$(nproc)
+
+    # 显示当前配置（如果存在）
+    display_zram_status
+
+    # 询问用户ZRAM大小百分比
+    read -p "请输入ZRAM大小占物理内存的百分比 (1-100) [默认: $default_percent]: " zram_percent
+    zram_percent=${zram_percent:-$default_percent}
+
+    if ! [[ "$zram_percent" =~ ^[0-9]+$ ]] || [ "$zram_percent" -lt 1 ] || [ "$zram_percent" -gt 100 ]; then
+        echo "无效的输入，使用默认值 $default_percent。"
+        zram_percent=$default_percent
+    fi
+
+    # 询问用户压缩算法
+    echo "请选择压缩算法："
+    echo "1. lzo"
+    echo "2. lz4"
+    echo "3. zstd (推荐)"
+    read -p "请输入选项数字 [默认: 3]: " algo_choice
+
+    case $algo_choice in
+        1) comp_algo="lzo" ;;
+        2) comp_algo="lz4" ;;
+        3|"") comp_algo="zstd" ;;
+        *) echo "无效的选择，使用默认算法 zstd"; comp_algo="zstd" ;;
+    esac
+
+    # 配置ZRAM
+    os_type=$(get_os_info)
+    case $os_type in
+        Debian/Ubuntu)
+            echo "PERCENT=$zram_percent" > /etc/default/zramswap
+            echo "ALGO=$comp_algo" >> /etc/default/zramswap
+            echo "DEVICES=$cpu_cores" >> /etc/default/zramswap
+            systemctl restart zramswap
+            ;;
+        CentOS|Fedora|Arch)
+            zram_size=$(($(grep MemTotal /proc/meminfo | awk '{print $2}') * $zram_percent / 100))
+            cat << EOF > /etc/systemd/zram-generator.conf
+[zram0]
+zram-size = ${zram_size}K
+compression-algorithm = $comp_algo
+EOF
+            systemctl restart systemd-zram-setup@zram0.service
+            ;;
+    esac
+
+    echo "ZRAM配置完成。"
+    echo "大小: ${zram_percent}% 的物理内存"
+    echo "压缩算法: $comp_algo"
+    echo "ZRAM设备数: $cpu_cores"
+}
+
+# 卸载ZRAM
+uninstall_zram() {
+    if is_zram_tools_installed; then
+        echo "正在卸载ZRAM..."
+        os_type=$(get_os_info)
+        case $os_type in
+            Debian/Ubuntu)
+                systemctl stop zramswap
+                systemctl disable zramswap
+                apt remove -y zram-tools
+                ;;
+            CentOS|Fedora)
+                systemctl stop systemd-zram-setup@zram0.service
+                systemctl disable systemd-zram-setup@zram0.service
+                dnf remove -y zram-generator
+                ;;
+            Arch)
+                systemctl stop systemd-zram-setup@zram0.service
+                systemctl disable systemd-zram-setup@zram0.service
+                pacman -R --noconfirm zram-generator
+                ;;
+            *)
+                echo "不支持的操作系统: $os_type"
+                return 1
+                ;;
+        esac
+        
+        # 移除配置文件
+        rm -f /etc/default/zramswap /etc/systemd/zram-generator.conf
+        
+        echo "ZRAM已卸载。"
+    else
+        echo "ZRAM未安装，无需卸载。"
+    fi
+}
+
+# ZRAM配置菜单
+configure_zram_menu() {
+    if ! check_zram_support; then
+        echo "您的系统不支持ZRAM。"
+        return 1
+    fi
+
+    while true; do
+        clear
+        echo "ZRAM配置菜单"
+        echo "----------------"
+
+        if is_zram_installed; then
+            display_zram_status
+            echo
+            echo "1. 修改ZRAM参数"
+        else
+            echo "1. 安装并配置ZRAM"
+        fi
+        echo "2. 卸载ZRAM"
+        echo "3. 返回主菜单"
+        
+        read -p "请选择操作: " choice
+
+        case $choice in
+            1)
+                configure_zram
+                ;;
+            2)
+                uninstall_zram
+                ;;
+            3)
+                return 0
+                ;;
+            *)
+                echo "无效的选择，请重新输入。"
+                ;;
+        esac
+
+        echo "按Enter键继续..."
+        read
+    done
+}
+
 
 # 显示操作菜单选项
 display_menu() {
@@ -1026,200 +1222,6 @@ display_menu() {
     echo -e "${BOLD}输入${RESET} 'q' ${BOLD}退出${RESET}"
 }
 
-# ZRAM 配置函数
-configure_zram_menu() {
-    while true; do
-        clear
-        echo "ZRAM 配置"
-        echo "----------------"
-
-        # 显示当前 ZRAM 使用情况
-        if command -v zramctl &> /dev/null; then
-            echo "当前 ZRAM 使用情况:"
-            zramctl | awk 'NR>1 {total+=$3; used+=$4} END {printf "总大小: %.2f GB, 使用: %.2f GB, 使用率: %.2f%%\n", total/1024/1024/1024, used/1024/1024/1024, used/total*100}'
-        else
-            echo "当前未配置 ZRAM"
-        fi
-
-        echo ""
-        echo "请选择操作:"
-        echo "1. 安装并配置 ZRAM"
-        echo "2. 卸载 ZRAM"
-        echo "3. 返回主菜单"
-
-        read -p "请输入选项数字: " choice
-
-        case $choice in
-            1)
-                install_and_configure_zram
-                ;;
-            2)
-                uninstall_zram
-                ;;
-            3)
-                return
-                ;;
-            *)
-                echo "无效的选项，请重新选择。"
-                ;;
-        esac
-
-        read -p "按 Enter 键继续..."
-    done
-}
-
-# 安装并配置 ZRAM
-install_and_configure_zram() {
-    os_type=$(get_os_info)
-    echo "正在安装和配置 ZRAM..."
-    
-    # 安装 ZRAM 工具
-    case $os_type in
-        Debian/Ubuntu)
-            apt update && apt install -y zram-tools
-            ;;
-        CentOS|Fedora)
-            dnf install -y zram-generator
-            ;;
-        Arch)
-            pacman -Sy --noconfirm zram-generator
-            ;;
-        *)
-            echo "不支持的操作系统: $os_type"
-            return 1
-            ;;
-    esac
-
-    # 获取用户输入的 ZRAM 大小百分比
-    while true; do
-        read -p "请输入 ZRAM 大小占物理内存的百分比 (1-100): " zram_percent
-        if [[ "$zram_percent" =~ ^[0-9]+$ ]] && [ "$zram_percent" -ge 1 ] && [ "$zram_percent" -le 100 ]; then
-            break
-        else
-            echo "无效的输入，请输入 1 到 100 之间的整数。"
-        fi
-    done
-
-    # 获取物理内存大小（KB）
-    total_mem_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
-    # 计算 ZRAM 大小（MB）
-    zram_size_mb=$((total_mem_kb * zram_percent / 100 / 1024))
-
-    # 获取 CPU 核心数
-    cpu_cores=$(nproc)
-
-    case $os_type in
-        Debian/Ubuntu)
-            cat > /etc/default/zramswap << EOF
-ALGO=zstd
-PERCENT=$zram_percent
-DEVICES=$cpu_cores
-EOF
-            systemctl restart zramswap
-            ;;
-        CentOS|Fedora|Arch)
-            cat > /etc/systemd/zram-generator.conf << EOF
-[zram0]
-zram-size = ${zram_size_mb}M
-compression-algorithm = zstd
-EOF
-            systemctl restart systemd-zram-setup@zram0.service
-            ;;
-    esac
-
-    echo "ZRAM 安装和配置完成。设置为使用 $cpu_cores 个设备，总大小为 ${zram_size_mb}MB (物理内存的 ${zram_percent}%)，使用 zstd 压缩算法。"
-}
-
-# 卸载 ZRAM
-uninstall_zram() {
-    os_type=$(get_os_info)
-    echo "正在卸载 ZRAM..."
-    case $os_type in
-        Debian/Ubuntu)
-            apt remove -y zram-tools
-            ;;
-        CentOS|Fedora)
-            dnf remove -y zram-generator
-            ;;
-        Arch)
-            pacman -R --noconfirm zram-generator
-            ;;
-        *)
-            echo "不支持的操作系统: $os_type"
-            return 1
-            ;;
-    esac
-    
-    # 停止并禁用 ZRAM 服务
-    case $os_type in
-        Debian/Ubuntu)
-            systemctl stop zramswap
-            systemctl disable zramswap
-            ;;
-        CentOS|Fedora|Arch)
-            systemctl stop systemd-zram-setup@zram0.service
-            systemctl disable systemd-zram-setup@zram0.service
-            ;;
-    esac
-
-    echo "ZRAM 卸载完成。"
-}
-
-# 显示操作菜单选项
-display_dialog_menu() {
-    os_type=$(get_os_info)
-
-    # 获取当前Linux发行版本（包括版本号）
-    linux_version=$(awk -F= '/^PRETTY_NAME=/{gsub(/"/, "", $2); print $2}' /etc/os-release)
-    # 获取当前内核版本
-    kernel_version=$(uname -r)
-    # 获取当前内存使用率（以百分比形式）
-    memory_usage=$(free | awk '/Mem/{printf("%.2f", $3/$2 * 100)}')
-
-    backtitle="GitHub: https://github.com/SuperNG6/linux-setup.sh \
-    当前Linux发行版本：${linux_version} \
-    当前内核版本：${kernel_version} \
-    当前内存使用率：${memory_usage}%"
-
-    dialog_cmd="dialog --clear --title \"SuperNG6 的Linux配置工具\" \
-        --backtitle \"$backtitle\" \
-        --menu \"请选择以下选项：\" 15 60 10 \
-        1 \"安装必要组件\" \
-        2 \"添加要登记设备的公钥\" \
-        3 \"关闭 SSH 密码登录\" \
-        4 \"修改 SSH 端口号\" \
-        5 \"添加 Docker 工具脚本\" \
-        6 \"设置 Swap 大小\" \
-        7 \"修改 Swap 使用阈值\" \
-        8 \"清理 Swap 缓存\" \
-        9 \"优化内核参数\""
-
-    if [[ $os_type == "Debian/Ubuntu" ]]; then
-        dialog_cmd="${dialog_cmd} \
-        10 \"下载并安装 XanMod 内核 (BBRv3)\" \
-        11 \"卸载 XanMod 内核，并恢复原有内核\""
-        
-        if [[ $os_type == "Debian"* ]]; then
-            dialog_cmd="${dialog_cmd} \
-            12 \"安装 Debian Cloud 内核\" \
-            13 \"卸载 Debian Cloud 内核，并恢复原有内核\""
-        fi
-    fi
-
-    dialog_cmd="${dialog_cmd} \
-        14 \"设置防火墙端口\" \
-        q \"退出\" 2> menu_choice.txt"
-
-    eval "$dialog_cmd"
-
-    dialog_cmd="${dialog_cmd} \
-        15 \"配置 ZRAM\" \
-        q \"退出\" 2> menu_choice.txt"
-
-    eval "$dialog_cmd"
-
-}
-
 
 # 根据用户选择执行相应的操作
 handle_choice() {
@@ -1247,27 +1249,15 @@ handle_choice() {
 }
 
 
-# 主函数，接受选项并执行相应的脚本
+# 主函数，接受选项并执行相应的脚本  
 main() {
     trap cleanup EXIT
-
+    
     while true; do
-        if check_dialog_installation; then
-            display_dialog_menu
-            choice=$(cat menu_choice.txt)
-            # 检查用户选择是否为空，如果是则退出脚本
-            if [ -z "$choice" ]; then
-                break
-            fi
-            # 根据用户选择执行相应的操作
-            handle_choice "$choice" || break
-        else
-            display_menu
-            read -p "请输入选项数字：" choice
-            # 根据用户选择执行相应的操作
-            handle_choice "$choice" || break
-        fi
-        
+        display_menu
+        read -p "请输入选项数字：" choice
+        # 根据用户选择执行相应的操作
+        handle_choice "$choice" || break
     done
     echo "欢迎再次使用本脚本！"
     sleep 0.5s
@@ -1276,7 +1266,6 @@ main() {
 
 # 清理函数，在脚本退出时执行
 cleanup() {
-    rm -f menu_choice.txt
     echo "正在退出脚本..."
     sleep 1s
     tput reset
