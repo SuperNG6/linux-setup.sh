@@ -978,15 +978,6 @@ is_zram_installed() {
     fi
 }
 
-# 检查zram-tools是否已安装
-is_zram_tools_installed() {
-    if command -v zram-config > /dev/null; then
-        return 0  # zram-tools已安装
-    else
-        return 1  # zram-tools未安装
-    fi
-}
-
 # 安装zram-tools
 install_zram_tools() {
     os_type=$(get_os_info)
@@ -1019,7 +1010,7 @@ display_zram_status() {
 
 # 配置ZRAM
 configure_zram() {
-    if ! is_zram_tools_installed; then
+    if ! is_zram_installed; then
         echo "正在安装ZRAM工具..."
         install_zram_tools
         if [ $? -ne 0 ]; then
@@ -1087,7 +1078,7 @@ EOF
 
 # 卸载ZRAM
 uninstall_zram() {
-    if is_zram_tools_installed; then
+    if is_zram_installed; then
         echo "正在卸载ZRAM..."
         os_type=$(get_os_info)
         case $os_type in
