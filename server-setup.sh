@@ -978,8 +978,8 @@ is_zram_installed() {
     fi
 }
 
-# 安装zram-tools
-install_zram_tools() {
+# 安装ZRAM
+install_zram() {
     os_type=$(get_os_info)
     case $os_type in
         Debian/Ubuntu)
@@ -1001,8 +1001,20 @@ install_zram_tools() {
 # 显示当前ZRAM配置和使用情况
 display_zram_status() {
     if is_zram_installed; then
-        echo "ZRAM 概览:"
+        echo "当前 ZRAM 配置:"
         zramctl
+        
+        os_type=$(get_os_info)
+        case $os_type in
+            Debian/Ubuntu)
+                echo "当前配置参数:"
+                grep -E "PERCENT|ALGO|DEVICES" /etc/default/zramswap
+                ;;
+            CentOS|Fedora|Arch)
+                echo "当前配置参数:"
+                cat /etc/systemd/zram-generator.conf
+                ;;
+        esac
     else
         echo "ZRAM 未安装或未配置。"
     fi
@@ -1011,47 +1023,56 @@ display_zram_status() {
 # 配置ZRAM
 configure_zram() {
     if ! is_zram_installed; then
-        echo "正在安装ZRAM工具..."
-        install_zram_tools
+        echo "正在安装ZRAM..."
+        install_zram
         if [ $? -ne 0 ]; then
-            echo "ZRAM工具安装失败。"
+            echo "ZRAM安装失败。"
             return 1
         fi
     fi
 
+    # 获取当前设置
+    os_type=$(get_os_info)
+    case $os_type in
+        Debian/Ubuntu)
+            current_percent=$(grep -oP 'PERCENT=\K\d+' /etc/default/zramswap)
+            current_algo=$(grep -oP 'ALGO=\K\w+' /etc/default/zramswap)
+            ;;
+        CentOS|Fedora|Arch)
+            current_percent=$(grep -oP 'zram-size = \K\d+' /etc/systemd/zram-generator.conf | awk '{print $1*100/1048576}')
+            current_algo=$(grep -oP 'compression-algorithm = \K\w+' /etc/systemd/zram-generator.conf)
+            ;;
+    esac
+
     # 默认设置
-    default_percent=50
-    default_algo="zstd"
+    default_percent=${current_percent:-50}
+    default_algo=${current_algo:-"zstd"}
     cpu_cores=$(nproc)
 
-    # 显示当前配置（如果存在）
-    display_zram_status
-
     # 询问用户ZRAM大小百分比
-    read -p "请输入ZRAM大小占物理内存的百分比 (1-100) [默认: $default_percent]: " zram_percent
+    read -p "请输入ZRAM大小占物理内存的百分比 (1-100) [当前/默认: $default_percent]: " zram_percent
     zram_percent=${zram_percent:-$default_percent}
 
     if ! [[ "$zram_percent" =~ ^[0-9]+$ ]] || [ "$zram_percent" -lt 1 ] || [ "$zram_percent" -gt 100 ]; then
-        echo "无效的输入，使用默认值 $default_percent。"
+        echo "无效的输入，使用当前/默认值 $default_percent。"
         zram_percent=$default_percent
     fi
 
     # 询问用户压缩算法
-    echo "请选择压缩算法："
+    echo "请选择压缩算法 [当前/默认: $default_algo]："
     echo "1. lzo"
     echo "2. lz4"
     echo "3. zstd (推荐)"
-    read -p "请输入选项数字 [默认: 3]: " algo_choice
+    read -p "请输入选项数字: " algo_choice
 
     case $algo_choice in
         1) comp_algo="lzo" ;;
         2) comp_algo="lz4" ;;
-        3|"") comp_algo="zstd" ;;
-        *) echo "无效的选择，使用默认算法 zstd"; comp_algo="zstd" ;;
+        3) comp_algo="zstd" ;;
+        *) echo "无效的选择，使用当前/默认算法 $default_algo"; comp_algo=$default_algo ;;
     esac
 
     # 配置ZRAM
-    os_type=$(get_os_info)
     case $os_type in
         Debian/Ubuntu)
             echo "PERCENT=$zram_percent" > /etc/default/zramswap
@@ -1070,7 +1091,7 @@ EOF
             ;;
     esac
 
-    echo "ZRAM配置完成。"
+    echo "ZRAM配置已更新。"
     echo "大小: ${zram_percent}% 的物理内存"
     echo "压缩算法: $comp_algo"
     echo "ZRAM设备数: $cpu_cores"
