@@ -216,7 +216,11 @@ add_docker_tools() {
     echo "功能4、dcs命令=查看docker-compose容器状态（需要在compose.yml文件夹内执行）"
     echo "功能5、dcps命令=查看docker-compose容器（需要在compose.yml文件夹内执行）"
     echo "功能6、dcip命令=查看容器ip，并添加到宿主机hosts中"
+<<<<<<< HEAD
     echo "工具脚本保存在"/root/.docker_tools"文件夹中，请勿删除"
+=======
+    echo "工具脚本保存在""/root/.docker_tools"文件夹中，请勿删除
+>>>>>>> 7e676e4e54ca948781414716c67d3dc8eda6bf58
     echo "-----------------------------------"
 
     read -p "是否安装，请输入 y 或 n：" install_choice
