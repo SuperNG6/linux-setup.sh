@@ -216,7 +216,7 @@ add_docker_tools() {
     echo "功能4、dcs命令=查看docker-compose容器状态（需要在compose.yml文件夹内执行）"
     echo "功能5、dcps命令=查看docker-compose容器（需要在compose.yml文件夹内执行）"
     echo "功能6、dcip命令=查看容器ip，并添加到宿主机hosts中"
-    echo "工具脚本保存在""/root/docker_tools"文件夹中，请勿删除
+    echo "工具脚本保存在""/root/.docker_tools"文件夹中，请勿删除
     echo "-----------------------------------"
 
     read -p "是否安装，请输入 y 或 n：" install_choice
@@ -230,7 +230,7 @@ add_docker_tools() {
             fi
 
             # 创建存放工具脚本的文件夹
-            tools_folder="/root/docker_tools"
+            tools_folder="/root/.docker_tools"
             mkdir -p "$tools_folder"
 
             # 下载dlogs.sh脚本
@@ -260,8 +260,8 @@ add_docker_tools() {
                 echo 'alias dc="docker-compose"' >> /root/.bashrc
                 echo 'alias dcs="docker-compose ps -q | xargs docker stats"' >> /root/.bashrc
                 echo 'alias dcps="docker ps $((docker-compose ps -q  || echo "#") | while read line; do echo "--filter id=$line"; done)"' >> /root/.bashrc
-                echo 'alias dcip="bash /root/docker_tools/dcip.sh"' >> /root/.bashrc
-                echo 'alias dlogs="bash /root/docker_tools/dlogs.sh"' >> /root/.bashrc
+                echo 'alias dcip="bash /root/.docker_tools/dcip.sh"' >> /root/.bashrc
+                echo 'alias dlogs="bash /root/.docker_tools/dlogs.sh"' >> /root/.bashrc
             fi
             echo "docker工具箱已成功安装。"
             ;;
