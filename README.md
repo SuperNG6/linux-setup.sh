@@ -80,9 +80,8 @@ CentOS、Fedora 和 Arch Linux 请自测，已做兼容处理，未测试，并�
 
 ### dialog_menu
 去掉`display_dialog_menu`功能，维护两套菜单系统太复杂了，截图纪念
-![Xnip2024-08-13_13-45-29](https://cdn.jsdelivr.net/gh/SuperNG6/pic@master/uPic/2024-08-13/Xnip2024-08-13_13-45-29.jpg)
-
 ```
+![Xnip2024-08-13_13-45-29](https://cdn.jsdelivr.net/gh/SuperNG6/pic@master/uPic/2024-08-13/Xnip2024-08-13_13-45-29.jpg)
 ## 使用方法
 
 1. 使用终端进入到的Linux系统。
