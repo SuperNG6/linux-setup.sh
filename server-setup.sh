@@ -212,10 +212,11 @@ add_docker_tools() {
     echo "docker工具箱，添加便捷指令."
     echo "功能1、nginx命令=docker nginx"
     echo "功能2、dlogs命令=查看docker容器日志"
-    echo "功能3、dc命令=docker-compose"
-    echo "功能4、dcs命令=查看docker-compose容器状态（需要在compose.yml文件夹内执行）"
-    echo "功能5、dcps命令=查看docker-compose容器（需要在compose.yml文件夹内执行）"
-    echo "功能6、dcip命令=查看容器ip，并添加到宿主机hosts中"
+    echo "功能3、dspa命令=清理不再使用的 docker 镜像、容器和网络"
+    echo "功能4、dc命令=docker-compose"
+    echo "功能5、dcs命令=查看docker-compose容器状态（需要在compose.yml文件夹内执行）"
+    echo "功能6、dcps命令=查看docker-compose容器（需要在compose.yml文件夹内执行）"
+    echo "功能7、dcip命令=查看容器ip，并添加到宿主机hosts中"
     echo "工具脚本保存在"/root/.docker_tools"文件夹中，请勿删除"
     echo "-----------------------------------"
 
@@ -258,6 +259,7 @@ add_docker_tools() {
                 # 追加alias到.bashrc文件
                 echo 'alias nginx="docker exec -i docker_nginx nginx"' >> /root/.bashrc
                 echo 'alias dc="docker-compose"' >> /root/.bashrc
+                echo 'alias dspa="docker system prune -a"' >> /root/.bashrc
                 echo 'alias dcs="docker-compose ps -q | xargs docker stats"' >> /root/.bashrc
                 echo 'alias dcps="docker ps $((docker-compose ps -q  || echo "#") | while read line; do echo "--filter id=$line"; done)"' >> /root/.bashrc
                 echo 'alias dcip="bash /root/.docker_tools/dcip.sh"' >> /root/.bashrc
