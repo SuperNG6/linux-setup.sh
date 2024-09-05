@@ -33,10 +33,11 @@ CentOS、Fedora 和 Arch Linux 请自测，已做兼容处理，未测试，并�
 
     功能1、nginx命令=docker nginx
     功能2、dlogs命令=查看docker容器日志
-    功能3、dc命令=docker-compose
-    功能4、dcs命令=查看docker-compose容器状态（需要在compose.yml文件夹内执行）
-    功能5、dcps命令=查看docker-compose容器（需要在compose.yml文件夹内执行）
-    功能6、dcip命令=查看容器ip，并添加到宿主机hosts中
+    功能3、dspa命令=清理不再使用的 docker 镜像、容器和网络
+    功能4、dc命令=docker-compose
+    功能5、dcs命令=查看docker-compose容器状态（需要在compose.yml文件夹内执行）
+    功能6、dcps命令=查看docker-compose容器（需要在compose.yml文件夹内执行）
+    功能7、dcip命令=查看容器ip，并添加到宿主机hosts中
 
 ## 选项 6：设置虚拟内存
 
