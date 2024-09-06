@@ -6,7 +6,6 @@ if [ "$(id -u)" != "0" ]; then
     exit 1
 fi
 
-
 # 获取操作系统信息
 get_os_info() {
     # 忽略大小写匹配
@@ -38,59 +37,68 @@ get_os_info() {
     fi
 }
 
+# 检查IP地址是否在中国
+check_ip_location() {
+    local IP=$(curl -s ipinfo.io/ip)
+    local COUNTRY=$(curl -s ipinfo.io/country)
+
+    if [ "$COUNTRY" = "CN" ]; then
+        echo "cn"
+    else
+        echo "overseas"
+    fi
+}
 
 # 检查已安装的防火墙类型
 check_firewall() {
     if command -v ufw &>/dev/null; then
-        echo "ufw"  # 返回 ufw 表示安装了 ufw 防火墙
+        echo "ufw" # 返回 ufw 表示安装了 ufw 防火墙
     elif command -v firewalld &>/dev/null; then
-        echo "firewalld"  # 返回 firewalld 表示安装了 firewalld 防火墙
+        echo "firewalld" # 返回 firewalld 表示安装了 firewalld 防火墙
     elif command -v iptables &>/dev/null; then
-        echo "iptables"  # 返回 iptables 表示安装了 iptables 防火墙
+        echo "iptables" # 返回 iptables 表示安装了 iptables 防火墙
     elif command -v nft &>/dev/null; then
-        echo "nftables"  # 返回 nftables 表示安装了 nftables 防火墙
+        echo "nftables" # 返回 nftables 表示安装了 nftables 防火墙
     else
-        echo "unknown"  # 返回 unknown 表示未安装支持的防火墙工具
+        echo "unknown" # 返回 unknown 表示未安装支持的防火墙工具
     fi
 }
-
 
 # 根据已安装的防火墙显示当前开放的端口
 display_open_ports() {
     firewall=$(check_firewall)
 
     case $firewall in
-        "ufw")
-            echo "当前开放的防火墙端口 (TCP):"
-            ufw status | grep "ALLOW" | grep -oP '\d+/tcp' | sort -u
-            echo "当前开放的防火墙端口 (UDP):"
-            ufw status | grep "ALLOW" | grep -oP '\d+/udp' | sort -u
-            ;;
-        "firewalld")
-            echo "当前开放的防火墙端口 (TCP):"
-            firewall-cmd --list-ports | grep "tcp"
-            echo "当前开放的防火墙端口 (UDP):"
-            firewall-cmd --list-ports | grep "udp"
-            ;;
-        "iptables")
-            echo "当前开放的防火墙端口 (TCP):"
-            iptables-legacy -L INPUT -n --line-numbers | grep "tcp" | grep -oP '\d+' | sort -u
-            echo "当前开放的防火墙端口 (UDP):"
-            iptables-legacy -L INPUT -n --line-numbers | grep "udp" | grep -oP '\d+' | sort -u
-            ;;
-        "nftables")
-            echo "当前开放的防火墙端口 (TCP):"
-            nft list ruleset | grep "tcp" | grep -oP '\d+' | sort -u
-            echo "当前开放的防火墙端口 (UDP):"
-            nft list ruleset | grep "udp" | grep -oP '\d+' | sort -u
-            ;;
-        *)
-            echo "找不到支持的防火墙。"
-            return 1
-            ;;
+    "ufw")
+        echo "当前开放的防火墙端口 (TCP):"
+        ufw status | grep "ALLOW" | grep -oP '\d+/tcp' | sort -u
+        echo "当前开放的防火墙端口 (UDP):"
+        ufw status | grep "ALLOW" | grep -oP '\d+/udp' | sort -u
+        ;;
+    "firewalld")
+        echo "当前开放的防火墙端口 (TCP):"
+        firewall-cmd --list-ports | grep "tcp"
+        echo "当前开放的防火墙端口 (UDP):"
+        firewall-cmd --list-ports | grep "udp"
+        ;;
+    "iptables")
+        echo "当前开放的防火墙端口 (TCP):"
+        iptables-legacy -L INPUT -n --line-numbers | grep "tcp" | grep -oP '\d+' | sort -u
+        echo "当前开放的防火墙端口 (UDP):"
+        iptables-legacy -L INPUT -n --line-numbers | grep "udp" | grep -oP '\d+' | sort -u
+        ;;
+    "nftables")
+        echo "当前开放的防火墙端口 (TCP):"
+        nft list ruleset | grep "tcp" | grep -oP '\d+' | sort -u
+        echo "当前开放的防火墙端口 (UDP):"
+        nft list ruleset | grep "udp" | grep -oP '\d+' | sort -u
+        ;;
+    *)
+        echo "找不到支持的防火墙。"
+        return 1
+        ;;
     esac
 }
-
 
 # 安装必要组件
 install_components() {
@@ -107,41 +115,86 @@ install_components() {
 
     # 获取操作系统信息
     os_type=$(get_os_info)
-    
+
     case $os_type in
-        Debian/Ubuntu)
-            # 更新软件包列表，如果失败则退出
-            apt -y update || { echo "更新软件包列表失败"; return 1; }
-            # 安装组件，如果失败则退出
-            apt -y install docker.io docker-compose fail2ban vim curl || { echo "安装组件失败"; return 1; }
-            ;;
-        CentOS)
-            # 更新软件包列表，如果失败则退出
-            yum -y update || { echo "更新软件包列表失败"; return 1; }
-            # 安装组件，如果失败则退出
-            yum -y install docker docker-compose fail2ban vim curl || { echo "安装组件失败"; return 1; }
-            ;;
-        Fedora)
-            # 更新软件包列表，如果失败则退出
-            dnf -y update || { echo "更新软件包列表失败"; return 1; }
-            # 安装组件，如果失败则退出
-            dnf -y install docker docker-compose fail2ban vim curl || { echo "安装组件失败"; return 1; }
-            ;;
-        Arch)
-            # 更新软件包列表，如果失败则退出
-            pacman -Syu --noconfirm || { echo "更新软件包列表失败"; return 1; }
-            # 安装组件，如果失败则退出
-            pacman -S --noconfirm docker docker-compose fail2ban vim curl || { echo "安装组件失败"; return 1; }
-            ;;
-        *)
-            echo "无法确定操作系统类型，无法安装组件。"
+    Debian/Ubuntu)
+        # 更新软件包列表，如果失败则退出
+        apt -y update || {
+            echo "更新软件包列表失败"
             return 1
-            ;;
+        }
+        # 安装组件，如果失败则退出
+        apt -y install docker.io docker-compose fail2ban vim curl || {
+            echo "安装组件失败"
+            return 1
+        }
+        ;;
+    CentOS)
+        # 更新软件包列表，如果失败则退出
+        yum -y update || {
+            echo "更新软件包列表失败"
+            return 1
+        }
+        # 安装组件，如果失败则退出
+        yum -y install docker docker-compose fail2ban vim curl || {
+            echo "安装组件失败"
+            return 1
+        }
+        ;;
+    Fedora)
+        # 更新软件包列表，如果失败则退出
+        dnf -y update || {
+            echo "更新软件包列表失败"
+            return 1
+        }
+        # 安装组件，如果失败则退出
+        dnf -y install docker docker-compose fail2ban vim curl || {
+            echo "安装组件失败"
+            return 1
+        }
+        ;;
+    Arch)
+        # 更新软件包列表，如果失败则退出
+        pacman -Syu --noconfirm || {
+            echo "更新软件包列表失败"
+            return 1
+        }
+        # 安装组件，如果失败则退出
+        pacman -S --noconfirm docker docker-compose fail2ban vim curl || {
+            echo "安装组件失败"
+            return 1
+        }
+        ;;
+    *)
+        echo "无法确定操作系统类型，无法安装组件。"
+        return 1
+        ;;
     esac
 
-    echo "关键组件安装成功。"
-}
+    echo "其他组件安装成功，现在开始安装Docker和Docker Compose。"
 
+    # 检查IP地址
+    location=$(check_ip_location)
+
+    if [ "$location" = "cn" ]; then
+        echo "检测到中国IP，使用国内镜像源安装Docker..."
+        bash <(wget -qO - https://get.docker.com --mirror AzureChinaCloud) || { echo "安装Docker失败"; return 1; }
+        
+        echo "安装Docker Compose..."
+        curl -L "https://mirror.ghproxy.com/https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose || { echo "下载Docker Compose失败"; return 1; }
+        chmod +x /usr/local/bin/docker-compose || { echo "为Docker Compose添加执行权限失败"; return 1; }
+    else
+        echo "检测到海外IP，使用官方源安装Docker..."
+        bash <(wget -qO - https://get.docker.com) || { echo "安装Docker失败"; return 1; }
+        
+        echo "安装Docker Compose..."
+        curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose || { echo "下载Docker Compose失败"; return 1; }
+        chmod +x /usr/local/bin/docker-compose || { echo "为Docker Compose添加执行权限失败"; return 1; }
+    fi
+
+    echo "Docker和Docker Compose安装成功。"
+    echo "所有组件安装完成。"
+}
 
 # 添加要登记设备的公钥
 add_public_key() {
@@ -164,7 +217,7 @@ add_public_key() {
     cp ~/.ssh/authorized_keys ~/.ssh/authorized_keys.bak
 
     # 追加公钥到authorized_keys文件
-    echo "$public_key" >> ~/.ssh/authorized_keys
+    echo "$public_key" >>~/.ssh/authorized_keys
 
     # 检查是否成功追加公钥
     if [ $? -eq 0 ]; then
@@ -176,7 +229,6 @@ add_public_key() {
         return 1
     fi
 }
-
 
 # 关闭SSH密码登录
 disable_ssh_password_login() {
@@ -204,7 +256,6 @@ disable_ssh_password_login() {
     fi
 }
 
-
 # 添加docker工具脚本
 add_docker_tools() {
     echo "你是否希望安装docker工具箱？（包括常用的docker命令和自定义脚本）"
@@ -223,59 +274,58 @@ add_docker_tools() {
     read -p "是否安装，请输入 y 或 n：" install_choice
 
     case $install_choice in
-        y|Y)
-            # 检查是否已经存在.bashrc文件
-            if [ -e "/root/.bashrc" ]; then
-                # 备份原始.bashrc文件
-                cp /root/.bashrc /root/.bashrc.bak
-            fi
+    y | Y)
+        # 检查是否已经存在.bashrc文件
+        if [ -e "/root/.bashrc" ]; then
+            # 备份原始.bashrc文件
+            cp /root/.bashrc /root/.bashrc.bak
+        fi
 
-            # 创建存放工具脚本的文件夹
-            tools_folder="/root/.docker_tools"
-            mkdir -p "$tools_folder"
+        # 创建存放工具脚本的文件夹
+        tools_folder="/root/.docker_tools"
+        mkdir -p "$tools_folder"
 
-            # 下载dlogs.sh脚本
-            wget -qO "$tools_folder/dlogs.sh" "https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/dlogs.sh"
-            if [ $? -eq 0 ]; then
-                chmod +x "$tools_folder/dlogs.sh"
-                echo "dlogs.sh脚本已下载并添加到 $tools_folder 文件夹。"
-            else
-                echo "下载dlogs.sh脚本失败。"
-            fi
+        # 下载dlogs.sh脚本
+        wget -qO "$tools_folder/dlogs.sh" "https://mirror.ghproxy.com/https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/dlogs.sh"
+        if [ $? -eq 0 ]; then
+            chmod +x "$tools_folder/dlogs.sh"
+            echo "dlogs.sh脚本已下载并添加到 $tools_folder 文件夹。"
+        else
+            echo "下载dlogs.sh脚本失败。"
+        fi
 
-            # 下载dcip.sh脚本
-            wget -qO "$tools_folder/dcip.sh" "https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/dcip.sh"
-            if [ $? -eq 0 ]; then
-                chmod +x "$tools_folder/dcip.sh"
-                echo "dcip.sh脚本已下载并添加到 $tools_folder 文件夹。"
-            else
-                echo "下载dcip.sh脚本失败。"
-            fi
+        # 下载dcip.sh脚本
+        wget -qO "$tools_folder/dcip.sh" "https://mirror.ghproxy.com/https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/dcip.sh"
+        if [ $? -eq 0 ]; then
+            chmod +x "$tools_folder/dcip.sh"
+            echo "dcip.sh脚本已下载并添加到 $tools_folder 文件夹。"
+        else
+            echo "下载dcip.sh脚本失败。"
+        fi
 
-            # 检查是否已经存在别名，避免重复添加
-            if grep -q "alias nginx=" /root/.bashrc; then
-                echo "别名已存在，无需重复添加。"
-            else
-                # 追加alias到.bashrc文件
-                echo 'alias nginx="docker exec -i docker_nginx nginx"' >> /root/.bashrc
-                echo 'alias dc="docker-compose"' >> /root/.bashrc
-                echo 'alias dspa="docker system prune -a"' >> /root/.bashrc
-                echo 'alias dcs="docker-compose ps -q | xargs docker stats"' >> /root/.bashrc
-                echo 'alias dcps="docker ps $((docker-compose ps -q  || echo "#") | while read line; do echo "--filter id=$line"; done)"' >> /root/.bashrc
-                echo 'alias dcip="bash /root/.docker_tools/dcip.sh"' >> /root/.bashrc
-                echo 'alias dlogs="bash /root/.docker_tools/dlogs.sh"' >> /root/.bashrc
-            fi
-            echo "docker工具箱已成功安装。"
-            ;;
-        n|N)
-            echo "取消安装docker工具箱。"
-            ;;
-        *)
-            echo "无效的选项，取消安装docker工具箱。"
-            ;;
+        # 检查是否已经存在别名，避免重复添加
+        if grep -q "alias nginx=" /root/.bashrc; then
+            echo "别名已存在，无需重复添加。"
+        else
+            # 追加alias到.bashrc文件
+            echo 'alias nginx="docker exec -i docker_nginx nginx"' >>/root/.bashrc
+            echo 'alias dc="docker-compose"' >>/root/.bashrc
+            echo 'alias dspa="docker system prune -a"' >>/root/.bashrc
+            echo 'alias dcs="docker-compose ps -q | xargs docker stats"' >>/root/.bashrc
+            echo 'alias dcps="docker ps $((docker-compose ps -q  || echo "#") | while read line; do echo "--filter id=$line"; done)"' >>/root/.bashrc
+            echo 'alias dcip="bash /root/.docker_tools/dcip.sh"' >>/root/.bashrc
+            echo 'alias dlogs="bash /root/.docker_tools/dlogs.sh"' >>/root/.bashrc
+        fi
+        echo "docker工具箱已成功安装。"
+        ;;
+    n | N)
+        echo "取消安装docker工具箱。"
+        ;;
+    *)
+        echo "无效的选项，取消安装docker工具箱。"
+        ;;
     esac
 }
-
 
 # 删除所有 swap 文件和分区
 remove_all_swap() {
@@ -296,7 +346,6 @@ remove_all_swap() {
     echo "所有 swap 文件和分区已删除。"
 }
 
-
 # 清理 swap 缓存
 cleanup_swap() {
     echo "正在检查当前交换空间..."
@@ -315,8 +364,8 @@ cleanup_swap() {
     used_swap=$(free -m | awk 'NR==3{print $3}')
 
     # 计算已使用的物理内存和虚拟内存占物理内存的百分比
-    used_memory_percent=$(( (used_memory) * 100 / total_memory ))
-    total_used_percent=$(( (used_memory + used_swap) * 100 / total_memory ))
+    used_memory_percent=$(((used_memory) * 100 / total_memory))
+    total_used_percent=$(((used_memory + used_swap) * 100 / total_memory))
 
     if [ -n "$swap_files" ]; then
         echo "当前交换空间大小如下："
@@ -334,29 +383,27 @@ cleanup_swap() {
             read -p "请输入 y 或 n：" cleanup_choice
 
             case $cleanup_choice in
-                y|Y)
-                    # 遍历并清理每个交换空间文件和分区
-                    for item in $swap_files $swap_partitions; do
-                        echo "正在清理 swap 缓存：$item"
-                        swapoff "$item"
-                        echo "已清理 swap 缓存：$item"
-                        swapon "$item"
-                    done
+            y | Y)
+                # 遍历并清理每个交换空间文件和分区
+                for item in $swap_files $swap_partitions; do
+                    echo "正在清理 swap 缓存：$item"
+                    swapoff "$item"
+                    echo "已清理 swap 缓存：$item"
+                    swapon "$item"
+                done
 
-                    echo "所有的 swap 缓存已清理。"
-                    ;;
-                n|N)
-                    echo "不需要清理 swap 缓存"
-                    ;;
-                *)
-                    echo "无效的选项，保留已存在的交换空间。"
-                    ;;
+                echo "所有的 swap 缓存已清理。"
+                ;;
+            n | N)
+                echo "不需要清理 swap 缓存"
+                ;;
+            *)
+                echo "无效的选项，保留已存在的交换空间。"
+                ;;
             esac
         fi
     fi
 }
-
-
 
 # 设置虚拟内存
 set_virtual_memory() {
@@ -370,16 +417,16 @@ set_virtual_memory() {
         read -p "请输入 y 或 n：" remove_choice
 
         case $remove_choice in
-            y|Y)
-                # 调用函数以删除所有 swap 文件和分区
-                remove_all_swap
-                ;;
-            n|N)
-                echo "保留已存在的 swap 。"
-                ;;
-            *)
-                echo "无效的选项，保留已存在的 swap 。"
-                ;;
+        y | Y)
+            # 调用函数以删除所有 swap 文件和分区
+            remove_all_swap
+            ;;
+        n | N)
+            echo "保留已存在的 swap 。"
+            ;;
+        *)
+            echo "无效的选项，保留已存在的 swap 。"
+            ;;
         esac
     fi
 
@@ -390,37 +437,37 @@ set_virtual_memory() {
     echo "4. 2GB"
     echo "5. 4GB"
     echo "6. 手动输入值"
-    
+
     read -p "请输入选项数字（按q退出）：" choice
 
     case $choice in
-        1)
-            swap_size="256M"
-            ;;
-        2)
-            swap_size="512M"
-            ;;
-        3)
-            swap_size="1G"
-            ;;
-        4)
-            swap_size="2G"
-            ;;
-        5)
-            swap_size="4G"
-            ;;
-        6)
-            read -p "请输入虚拟内存大小（例如：256M、1G、2G等）：" swap_size_input
-            swap_size="$swap_size_input"
-            ;;
-        q|Q)
-            echo "返回主菜单..."
-            return 1
-            ;;
-        *)
-            echo "无效的选项。"
-            return 1
-            ;;
+    1)
+        swap_size="256M"
+        ;;
+    2)
+        swap_size="512M"
+        ;;
+    3)
+        swap_size="1G"
+        ;;
+    4)
+        swap_size="2G"
+        ;;
+    5)
+        swap_size="4G"
+        ;;
+    6)
+        read -p "请输入虚拟内存大小（例如：256M、1G、2G等）：" swap_size_input
+        swap_size="$swap_size_input"
+        ;;
+    q | Q)
+        echo "返回主菜单..."
+        return 1
+        ;;
+    *)
+        echo "无效的选项。"
+        return 1
+        ;;
     esac
 
     echo "正在设置虚拟内存..."
@@ -434,16 +481,16 @@ set_virtual_memory() {
 
     # 将单位转换为KB
     case $swap_size in
-        *M)
-            swap_size_kb=$(( ${swap_size//[^0-9]/} * 1024 ))  # Convert MB to KB
-            ;;
-        *G)
-            swap_size_kb=$(( ${swap_size//[^0-9]/} * 1024 * 1024 ))  # Convert GB to KB
-            ;;
-        *)
-            echo "无效的虚拟内存大小单位。"
-            return 1
-            ;;
+    *M)
+        swap_size_kb=$((${swap_size//[^0-9]/} * 1024)) # Convert MB to KB
+        ;;
+    *G)
+        swap_size_kb=$((${swap_size//[^0-9]/} * 1024 * 1024)) # Convert GB to KB
+        ;;
+    *)
+        echo "无效的虚拟内存大小单位。"
+        return 1
+        ;;
     esac
 
     # 使用dd创建交换文件
@@ -455,7 +502,7 @@ set_virtual_memory() {
         swapon /swap
 
         if [ $? -eq 0 ]; then
-            echo "/swap swap swap defaults 0 0" >> /etc/fstab
+            echo "/swap swap swap defaults 0 0" >>/etc/fstab
             echo "虚拟内存设置成功。"
             echo "当前 swap 大小如下："
             swapon -s | grep '/swap'
@@ -468,7 +515,6 @@ set_virtual_memory() {
         return 1
     fi
 }
-
 
 # 修改swap使用阈值
 modify_swap_usage_threshold() {
@@ -494,7 +540,7 @@ modify_swap_usage_threshold() {
         sed -i "s/^vm.swappiness=.*/vm.swappiness=$swap_value/" /etc/sysctl.conf
     else
         # 追加vm.swappiness值到/etc/sysctl.conf
-        echo "vm.swappiness=$swap_value" >> /etc/sysctl.conf
+        echo "vm.swappiness=$swap_value" >>/etc/sysctl.conf
     fi
 
     # 重新加载系统设置
@@ -512,13 +558,12 @@ modify_swap_usage_threshold() {
     fi
 }
 
-
 # 优化内核参数
 optimize_kernel_parameters() {
-  # 询问用户是否继续
-  read -p "您确定要优化内核参数吗？(y/n): " choice
+    # 询问用户是否继续
+    read -p "您确定要优化内核参数吗？(y/n): " choice
 
-  case $choice in
+    case $choice in
     y | Y)
         echo "正在备份原始内核参数..."
         cp /etc/sysctl.conf /etc/sysctl.conf.bak
@@ -559,7 +604,7 @@ optimize_kernel_parameters() {
             if grep -q "^$key" /etc/sysctl.conf; then
                 sed -i "s/^$key=.*/$param/" /etc/sysctl.conf
             else
-                echo "$param" >> /etc/sysctl.conf
+                echo "$param" >>/etc/sysctl.conf
             fi
         done
 
@@ -575,16 +620,15 @@ optimize_kernel_parameters() {
         echo "无效的选项。"
         return 1
         ;;
-  esac
+    esac
 }
-
 
 # 安装XanMod内核
 install_xanmod_kernel() {
     echo "当前内核版本：$(uname -r)"
 
     # 检查 CPU 支持的指令集级别
-    cpu_support_info=$(/usr/bin/awk -f <(wget -qO - https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/check_x86-64_psabi.sh))
+    cpu_support_info=$(/usr/bin/awk -f <(wget -qO - https://mirror.ghproxy.com/https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/check_x86-64_psabi.sh))
     if [[ $cpu_support_info == "CPU supports x86-64-v"* ]]; then
         cpu_support_level=${cpu_support_info#CPU supports x86-64-v}
         echo "你的CPU支持XanMod内核，级别为 x86-64-v$cpu_support_level"
@@ -596,93 +640,102 @@ install_xanmod_kernel() {
     read -p "是否继续下载并安装XanMod内核？ (y/n): " continue_choice
 
     case $continue_choice in
-        y|Y)
-            echo "正在从GitHub下载XanMod内核..."
-            echo "XanMod内核官网 https://xanmod.org"
-            echo "内核来自 https://sourceforge.net/projects/xanmod/files/releases/lts/"
+    y | Y)
+        echo "正在从GitHub下载XanMod内核..."
+        echo "XanMod内核官网 https://xanmod.org"
+        echo "内核来自 https://sourceforge.net/projects/xanmod/files/releases/lts/"
 
-            # 创建临时文件夹
-            temp_folder=$(mktemp -d)
-            cd $temp_folder
+        # 创建临时文件夹
+        temp_folder=$(mktemp -d)
+        cd $temp_folder
 
-            # 根据CPU支持级别选择下载的内核
-            case $cpu_support_level in
-                2)
-                    headers_file="linux-headers-6.1.46-x64v2-xanmod1_6.1.46-x64v2-xanmod1-0.20230816.g11dcd23_amd64.deb"
-                    image_file="linux-image-6.1.46-x64v2-xanmod1_6.1.46-x64v2-xanmod1-0.20230816.g11dcd23_amd64.deb"
-                    headers_md5="45c85d1bcb07bf171006a3e34b804db0"
-                    image_md5="63c359cef963a2e9f1b7181829521fc3"
-                    ;;
-                3)
-                    headers_file="linux-headers-6.1.46-x64v3-xanmod1_6.1.46-x64v3-xanmod1-0.20230816.g11dcd23_amd64.deb"
-                    image_file="linux-image-6.1.46-x64v3-xanmod1_6.1.46-x64v3-xanmod1-0.20230816.g11dcd23_amd64.deb"
-                    headers_md5="6ae3e253a8aeabd80458df4cb4da70cf"
-                    image_md5="d6ea43a2a6686b86e0ac23f800eb95a4"
-                    ;;
-                4)
-                    headers_file="linux-headers-6.1.46-x64v4-xanmod1_6.1.46-x64v4-xanmod1-0.20230816.g11dcd23_amd64.deb"
-                    image_file="linux-image-6.1.46-x64v4-xanmod1_6.1.46-x64v4-xanmod1-0.20230816.g11dcd23_amd64.deb"
-                    headers_md5="9c41a4090a8068333b7dd56b87dd01df"
-                    image_md5="7d30eef4b9094522fc067dc19f7cc92e"
-                    ;;
-                *)
-                    echo "你的CPU不受XanMod内核支持，无法安装。"
-                    return 1
-                    ;;
-            esac
+        # 根据CPU支持级别选择下载的内核
+        case $cpu_support_level in
+        2)
+            headers_file="linux-headers-6.1.46-x64v2-xanmod1_6.1.46-x64v2-xanmod1-0.20230816.g11dcd23_amd64.deb"
+            image_file="linux-image-6.1.46-x64v2-xanmod1_6.1.46-x64v2-xanmod1-0.20230816.g11dcd23_amd64.deb"
+            headers_md5="45c85d1bcb07bf171006a3e34b804db0"
+            image_md5="63c359cef963a2e9f1b7181829521fc3"
+            ;;
+        3)
+            headers_file="linux-headers-6.1.46-x64v3-xanmod1_6.1.46-x64v3-xanmod1-0.20230816.g11dcd23_amd64.deb"
+            image_file="linux-image-6.1.46-x64v3-xanmod1_6.1.46-x64v3-xanmod1-0.20230816.g11dcd23_amd64.deb"
+            headers_md5="6ae3e253a8aeabd80458df4cb4da70cf"
+            image_md5="d6ea43a2a6686b86e0ac23f800eb95a4"
+            ;;
+        4)
+            headers_file="linux-headers-6.1.46-x64v4-xanmod1_6.1.46-x64v4-xanmod1-0.20230816.g11dcd23_amd64.deb"
+            image_file="linux-image-6.1.46-x64v4-xanmod1_6.1.46-x64v4-xanmod1-0.20230816.g11dcd23_amd64.deb"
+            headers_md5="9c41a4090a8068333b7dd56b87dd01df"
+            image_md5="7d30eef4b9094522fc067dc19f7cc92e"
+            ;;
+        *)
+            echo "你的CPU不受XanMod内核支持，无法安装。"
+            return 1
+            ;;
+        esac
 
+
+        # 检查IP地址
+        location=$(check_ip_location)
+
+        if [ "$location" = "cn" ]; then
+            # 使用镜像加速下载内核文件
+            wget "https://mirror.ghproxy.com/https://github.com/SuperNG6/linux-setup.sh/releases/download/0816/$headers_file"
+            wget "https://mirror.ghproxy.com/https://github.com/SuperNG6/linux-setup.sh/releases/download/0816/$image_file"
+        else
             # 下载内核文件
             wget "https://github.com/SuperNG6/linux-setup.sh/releases/download/0816/$headers_file"
             wget "https://github.com/SuperNG6/linux-setup.sh/releases/download/0816/$image_file"
+        fi
 
-            # 校验 MD5 值
-            if [ "$(md5sum $headers_file | awk '{print $1}')" != "$headers_md5" ]; then
-                echo "下载的 $headers_file MD5 值不匹配，可能文件已被篡改。"
-                return 1
-            fi
+        # 校验 MD5 值
+        if [ "$(md5sum $headers_file | awk '{print $1}')" != "$headers_md5" ]; then
+            echo "下载的 $headers_file MD5 值不匹配，可能文件已被篡改。"
+            return 1
+        fi
 
-            if [ "$(md5sum $image_file | awk '{print $1}')" != "$image_md5" ]; then
-                echo "下载的 $image_file MD5 值不匹配，可能文件已被篡改。"
-                return 1
-            fi
+        if [ "$(md5sum $image_file | awk '{print $1}')" != "$image_md5" ]; then
+            echo "下载的 $image_file MD5 值不匹配，可能文件已被篡改。"
+            return 1
+        fi
 
-            # 安装内核
-            dpkg -i linux-image-*xanmod*.deb linux-headers-*xanmod*.deb
+        # 安装内核
+        dpkg -i linux-image-*xanmod*.deb linux-headers-*xanmod*.deb
 
-            # 检查安装是否成功
-            if [ $? -eq 0 ]; then
-                echo "XanMod内核安装成功。"
-                read -p "是否需要更新grub引导配置？ (y/n): " update_grub_choice
+        # 检查安装是否成功
+        if [ $? -eq 0 ]; then
+            echo "XanMod内核安装成功。"
+            read -p "是否需要更新grub引导配置？ (y/n): " update_grub_choice
 
-                case $update_grub_choice in
-                    y|Y)
-                        update-grub
-                        echo "Grub引导配置已更新，重启后生效。"
-                        echo "若需要开启BBRv3，请重启后执行脚本-内核优化选项"
-                        ;;
-                    n|N)
-                        echo "跳过Grub引导配置更新。"
-                        ;;
-                    *)
-                        echo "无效的选项，跳过Grub引导配置更新。"
-                        ;;
-                esac
-            else
-                echo "XanMod内核安装失败。"
-            fi
+            case $update_grub_choice in
+            y | Y)
+                update-grub
+                echo "Grub引导配置已更新，重启后生效。"
+                echo "若需要开启BBRv3，请重启后执行脚本-内核优化选项"
+                ;;
+            n | N)
+                echo "跳过Grub引导配置更新。"
+                ;;
+            *)
+                echo "无效的选项，跳过Grub引导配置更新。"
+                ;;
+            esac
+        else
+            echo "XanMod内核安装失败。"
+        fi
 
-            # 清理下载的deb文件
-            rm -f linux-image-*xanmod*.deb linux-headers-*xanmod*.deb
-            ;;
-        n|N)
-            echo "取消下载和安装XanMod内核。"
-            ;;
-        *)
-            echo "无效的选项，取消下载和安装XanMod内核。"
-            ;;
+        # 清理下载的deb文件
+        rm -f linux-image-*xanmod*.deb linux-headers-*xanmod*.deb
+        ;;
+    n | N)
+        echo "取消下载和安装XanMod内核。"
+        ;;
+    *)
+        echo "无效的选项，取消下载和安装XanMod内核。"
+        ;;
     esac
 }
-
 
 # 卸载XanMod内核并恢复原有内核，并更新Grub引导配置
 uninstall_xanmod_kernel() {
@@ -694,7 +747,7 @@ uninstall_xanmod_kernel() {
     # 检查是否为XanMod内核
     if [[ $current_kernel_version == *-xanmod* ]]; then
         echo "当前内核为 XanMod 内核：$current_kernel_version"
-        
+
         # 显示卸载提示
         read -p "确定要卸载XanMod内核并恢复原有内核吗？(y/n): " confirm
         if [[ $confirm == [yY] ]]; then
@@ -825,53 +878,52 @@ modify_ssh_port() {
     # 开放新端口号根据不同的防火墙
     firewall=$(check_firewall)
     case $firewall in
-        "ufw")
-            ufw allow $new_port/tcp
-            echo "开放防火墙SSH端口 $new_port"
-            ;;
-        "firewalld")
-            firewall-cmd --add-port=$new_port/tcp --permanent
-            firewall-cmd --reload
-            echo "开放防火墙SSH端口 $new_port"
-            ;;
-        "iptables")
-            iptables -A INPUT -p tcp --dport $new_port -j ACCEPT
-            service iptables save
-            service iptables restart
-            echo "开放防火墙SSH端口 $new_port"
-            ;;
-        "nftables")
-            nft add rule ip filter input tcp dport $new_port accept
-            echo "开放防火墙SSH端口 $new_port"
-            ;;
-        *)
-            echo "不支持的防火墙或找不到防火墙。"
-            ;;
+    "ufw")
+        ufw allow $new_port/tcp
+        echo "开放防火墙SSH端口 $new_port"
+        ;;
+    "firewalld")
+        firewall-cmd --add-port=$new_port/tcp --permanent
+        firewall-cmd --reload
+        echo "开放防火墙SSH端口 $new_port"
+        ;;
+    "iptables")
+        iptables -A INPUT -p tcp --dport $new_port -j ACCEPT
+        service iptables save
+        service iptables restart
+        echo "开放防火墙SSH端口 $new_port"
+        ;;
+    "nftables")
+        nft add rule ip filter input tcp dport $new_port accept
+        echo "开放防火墙SSH端口 $new_port"
+        ;;
+    *)
+        echo "不支持的防火墙或找不到防火墙。"
+        ;;
     esac
 }
-
 
 # 设置防火墙端口
 set_firewall_ports() {
     firewall=$(check_firewall)
 
     case $firewall in
-        "ufw")
-            firewall_cmd="ufw"
-            ;;
-        "firewalld")
-            firewall_cmd="firewall-cmd"
-            ;;
-        "iptables")
-            firewall_cmd="iptables-legacy"
-            ;;
-        "nftables")
-            firewall_cmd="nft"
-            ;;
-        *)
-            echo "找不到支持的防火墙。"
-            return 1
-            ;;
+    "ufw")
+        firewall_cmd="ufw"
+        ;;
+    "firewalld")
+        firewall_cmd="firewall-cmd"
+        ;;
+    "iptables")
+        firewall_cmd="iptables-legacy"
+        ;;
+    "nftables")
+        firewall_cmd="nft"
+        ;;
+    *)
+        echo "找不到支持的防火墙。"
+        return 1
+        ;;
     esac
 
     echo "当前系统安装的防火墙为：$(check_firewall)"
@@ -886,97 +938,97 @@ set_firewall_ports() {
     read -p "请输入操作选项 (1/2): " action
 
     case $action in
-        1)
-            echo -e "============================================="
-            echo -e "','逗号为分隔符，支持一次输入多个tcp，udp端口"
-            echo -e "============================================="
-            read -p "请输入要开放的新防火墙端口，如80t,443t,53u（t代表TCP，u代表UDP）：" new_ports_input
-            
-            # 设置 IFS（内部字段分隔符）为逗号，将输入字符串按逗号分割成数组
-            IFS=',' read -ra new_ports <<< "$new_ports_input"
+    1)
+        echo -e "============================================="
+        echo -e "','逗号为分隔符，支持一次输入多个tcp，udp端口"
+        echo -e "============================================="
+        read -p "请输入要开放的新防火墙端口，如80t,443t,53u（t代表TCP，u代表UDP）：" new_ports_input
 
-            for port_input in "${new_ports[@]}"; do
-                if [[ ! "$port_input" =~ ^[0-9]+[tu]$ ]]; then
-                    echo "无效的输入，请按照格式输入端口号和协议缩写（例如：80t 或 443u）。"
-                    return 1
-                fi
+        # 设置 IFS（内部字段分隔符）为逗号，将输入字符串按逗号分割成数组
+        IFS=',' read -ra new_ports <<<"$new_ports_input"
 
-                port="${port_input%[tu]}"
-                case "${port_input: -1}" in
-                    t)
-                        protocol="tcp"
-                        ;;
-                    u)
-                        protocol="udp"
-                        ;;
-                    *)
-                        echo "无效的协议缩写。"
-                        return 1
-                        ;;
-                esac
+        for port_input in "${new_ports[@]}"; do
+            if [[ ! "$port_input" =~ ^[0-9]+[tu]$ ]]; then
+                echo "无效的输入，请按照格式输入端口号和协议缩写（例如：80t 或 443u）。"
+                return 1
+            fi
 
-                $firewall_cmd allow $port/$protocol
-                echo "开放 $protocol 端口 $port 成功。"
-            done
-            ;;
-        2)
-            echo -e "============================================="
-            echo -e "','逗号为分隔符，支持一次输入多个tcp，udp端口"
-            echo -e "============================================="
-            read -p "请输入要关闭的防火墙端口，如80t,53u（t代表TCP，u代表UDP）：" ports_to_close_input
+            port="${port_input%[tu]}"
+            case "${port_input: -1}" in
+            t)
+                protocol="tcp"
+                ;;
+            u)
+                protocol="udp"
+                ;;
+            *)
+                echo "无效的协议缩写。"
+                return 1
+                ;;
+            esac
 
-            # 设置 IFS（内部字段分隔符）为逗号，将输入字符串按逗号分割成数组
-            IFS=',' read -ra ports_to_close <<< "$ports_to_close_input"
+            $firewall_cmd allow $port/$protocol
+            echo "开放 $protocol 端口 $port 成功。"
+        done
+        ;;
+    2)
+        echo -e "============================================="
+        echo -e "','逗号为分隔符，支持一次输入多个tcp，udp端口"
+        echo -e "============================================="
+        read -p "请输入要关闭的防火墙端口，如80t,53u（t代表TCP，u代表UDP）：" ports_to_close_input
 
-            for port_input in "${ports_to_close[@]}"; do
-                if [[ ! "$port_input" =~ ^[0-9]+[tu]$ ]]; then
-                    echo "无效的输入，请按照格式输入端口号和协议缩写（例如：80t 或 443u）。"
-                    return 1
-                fi
+        # 设置 IFS（内部字段分隔符）为逗号，将输入字符串按逗号分割成数组
+        IFS=',' read -ra ports_to_close <<<"$ports_to_close_input"
 
-                port="${port_input%[tu]}"
-                case "${port_input: -1}" in
-                    t)
-                        protocol="tcp"
-                        ;;
-                    u)
-                        protocol="udp"
-                        ;;
-                    *)
-                        echo "无效的协议缩写。"
-                        return 1
-                        ;;
-                esac
+        for port_input in "${ports_to_close[@]}"; do
+            if [[ ! "$port_input" =~ ^[0-9]+[tu]$ ]]; then
+                echo "无效的输入，请按照格式输入端口号和协议缩写（例如：80t 或 443u）。"
+                return 1
+            fi
 
-                $firewall_cmd deny $port/$protocol
-                echo "关闭 $protocol 端口 $port 成功。"
-            done
-            ;;
-        q|Q)
-            return 1
-            ;;
-        *)
-            echo "无效的操作选项。"
-            return 1
-            ;;
+            port="${port_input%[tu]}"
+            case "${port_input: -1}" in
+            t)
+                protocol="tcp"
+                ;;
+            u)
+                protocol="udp"
+                ;;
+            *)
+                echo "无效的协议缩写。"
+                return 1
+                ;;
+            esac
+
+            $firewall_cmd deny $port/$protocol
+            echo "关闭 $protocol 端口 $port 成功。"
+        done
+        ;;
+    q | Q)
+        return 1
+        ;;
+    *)
+        echo "无效的操作选项。"
+        return 1
+        ;;
     esac
 }
 
 # 检查系统是否支持ZRAM
 check_zram_support() {
     if [ -d "/sys/class/zram-control" ]; then
-        return 0  # 支持ZRAM
+        return 0 # 支持ZRAM
     else
-        return 1  # 不支持ZRAM
+        return 1 # 不支持ZRAM
     fi
 }
 
 # 检查ZRAM是否已安装
 is_zram_installed() {
-    if lsmod | grep -q zram && command -v zramctl > /dev/null; then
-        return 0  # ZRAM已安装
+    if lsmod | grep -q zram && command -v zramctl >/dev/null; then
+        return 0 # ZRAM已安装
     else
-        return 1  # ZRAM未安装
+        return 1 # ZRAM未安装
     fi
 }
 
@@ -984,19 +1036,19 @@ is_zram_installed() {
 install_zram() {
     os_type=$(get_os_info)
     case $os_type in
-        Debian/Ubuntu)
-            apt update && apt install -y zram-tools
-            ;;
-        CentOS|Fedora)
-            dnf install -y zram-generator
-            ;;
-        Arch)
-            pacman -Sy --noconfirm zram-generator
-            ;;
-        *)
-            echo "不支持的操作系统: $os_type"
-            return 1
-            ;;
+    Debian/Ubuntu)
+        apt update && apt install -y zram-tools
+        ;;
+    CentOS | Fedora)
+        dnf install -y zram-generator
+        ;;
+    Arch)
+        pacman -Sy --noconfirm zram-generator
+        ;;
+    *)
+        echo "不支持的操作系统: $os_type"
+        return 1
+        ;;
     esac
 }
 
@@ -1005,17 +1057,17 @@ display_zram_status() {
     if is_zram_installed; then
         echo "当前 ZRAM 配置:"
         zramctl
-        
+
         os_type=$(get_os_info)
         case $os_type in
-            Debian/Ubuntu)
-                echo "当前配置参数:"
-                grep -E "PERCENT|ALGO|DEVICES" /etc/default/zramswap
-                ;;
-            CentOS|Fedora|Arch)
-                echo "当前配置参数:"
-                cat /etc/systemd/zram-generator.conf
-                ;;
+        Debian/Ubuntu)
+            echo "当前配置参数:"
+            grep -E "PERCENT|ALGO|DEVICES" /etc/default/zramswap
+            ;;
+        CentOS | Fedora | Arch)
+            echo "当前配置参数:"
+            cat /etc/systemd/zram-generator.conf
+            ;;
         esac
     else
         echo "ZRAM 未安装或未配置。"
@@ -1036,14 +1088,14 @@ configure_zram() {
     # 获取当前设置
     os_type=$(get_os_info)
     case $os_type in
-        Debian/Ubuntu)
-            current_percent=$(grep -oP 'PERCENT=\K\d+' /etc/default/zramswap)
-            current_algo=$(grep -oP 'ALGO=\K\w+' /etc/default/zramswap)
-            ;;
-        CentOS|Fedora|Arch)
-            current_percent=$(grep -oP 'zram-size = \K\d+' /etc/systemd/zram-generator.conf | awk '{print $1*100/1048576}')
-            current_algo=$(grep -oP 'compression-algorithm = \K\w+' /etc/systemd/zram-generator.conf)
-            ;;
+    Debian/Ubuntu)
+        current_percent=$(grep -oP 'PERCENT=\K\d+' /etc/default/zramswap)
+        current_algo=$(grep -oP 'ALGO=\K\w+' /etc/default/zramswap)
+        ;;
+    CentOS | Fedora | Arch)
+        current_percent=$(grep -oP 'zram-size = \K\d+' /etc/systemd/zram-generator.conf | awk '{print $1*100/1048576}')
+        current_algo=$(grep -oP 'compression-algorithm = \K\w+' /etc/systemd/zram-generator.conf)
+        ;;
     esac
 
     # 默认设置
@@ -1068,29 +1120,32 @@ configure_zram() {
     read -p "请输入选项数字: " algo_choice
 
     case $algo_choice in
-        1) comp_algo="lzo" ;;
-        2) comp_algo="lz4" ;;
-        3) comp_algo="zstd" ;;
-        *) echo "无效的选择，使用当前/默认算法 $default_algo"; comp_algo=$default_algo ;;
+    1) comp_algo="lzo" ;;
+    2) comp_algo="lz4" ;;
+    3) comp_algo="zstd" ;;
+    *)
+        echo "无效的选择，使用当前/默认算法 $default_algo"
+        comp_algo=$default_algo
+        ;;
     esac
 
     # 配置ZRAM
     case $os_type in
-        Debian/Ubuntu)
-            echo "PERCENT=$zram_percent" > /etc/default/zramswap
-            echo "ALGO=$comp_algo" >> /etc/default/zramswap
-            echo "DEVICES=$cpu_cores" >> /etc/default/zramswap
-            systemctl restart zramswap
-            ;;
-        CentOS|Fedora|Arch)
-            zram_size=$(($(grep MemTotal /proc/meminfo | awk '{print $2}') * $zram_percent / 100))
-            cat << EOF > /etc/systemd/zram-generator.conf
+    Debian/Ubuntu)
+        echo "PERCENT=$zram_percent" >/etc/default/zramswap
+        echo "ALGO=$comp_algo" >>/etc/default/zramswap
+        echo "DEVICES=$cpu_cores" >>/etc/default/zramswap
+        systemctl restart zramswap
+        ;;
+    CentOS | Fedora | Arch)
+        zram_size=$(($(grep MemTotal /proc/meminfo | awk '{print $2}') * $zram_percent / 100))
+        cat <<EOF >/etc/systemd/zram-generator.conf
 [zram0]
 zram-size = ${zram_size}K
 compression-algorithm = $comp_algo
 EOF
-            systemctl restart systemd-zram-setup@zram0.service
-            ;;
+        systemctl restart systemd-zram-setup@zram0.service
+        ;;
     esac
 
     echo "ZRAM配置已更新。"
@@ -1105,30 +1160,30 @@ uninstall_zram() {
         echo "正在卸载ZRAM..."
         os_type=$(get_os_info)
         case $os_type in
-            Debian/Ubuntu)
-                systemctl stop zramswap
-                systemctl disable zramswap
-                apt remove -y zram-tools
-                ;;
-            CentOS|Fedora)
-                systemctl stop systemd-zram-setup@zram0.service
-                systemctl disable systemd-zram-setup@zram0.service
-                dnf remove -y zram-generator
-                ;;
-            Arch)
-                systemctl stop systemd-zram-setup@zram0.service
-                systemctl disable systemd-zram-setup@zram0.service
-                pacman -R --noconfirm zram-generator
-                ;;
-            *)
-                echo "不支持的操作系统: $os_type"
-                return 1
-                ;;
+        Debian/Ubuntu)
+            systemctl stop zramswap
+            systemctl disable zramswap
+            apt remove -y zram-tools
+            ;;
+        CentOS | Fedora)
+            systemctl stop systemd-zram-setup@zram0.service
+            systemctl disable systemd-zram-setup@zram0.service
+            dnf remove -y zram-generator
+            ;;
+        Arch)
+            systemctl stop systemd-zram-setup@zram0.service
+            systemctl disable systemd-zram-setup@zram0.service
+            pacman -R --noconfirm zram-generator
+            ;;
+        *)
+            echo "不支持的操作系统: $os_type"
+            return 1
+            ;;
         esac
-        
+
         # 移除配置文件
         rm -f /etc/default/zramswap /etc/systemd/zram-generator.conf
-        
+
         echo "ZRAM已卸载。"
     else
         echo "ZRAM未安装，无需卸载。"
@@ -1156,29 +1211,28 @@ configure_zram_menu() {
         fi
         echo "2. 卸载ZRAM"
         echo "3. 返回主菜单"
-        
+
         read -p "请选择操作: " choice
 
         case $choice in
-            1)
-                configure_zram
-                ;;
-            2)
-                uninstall_zram
-                ;;
-            3)
-                return 0
-                ;;
-            *)
-                echo "无效的选择，请重新输入。"
-                ;;
+        1)
+            configure_zram
+            ;;
+        2)
+            uninstall_zram
+            ;;
+        3)
+            return 0
+            ;;
+        *)
+            echo "无效的选择，请重新输入。"
+            ;;
         esac
 
         echo "按Enter键继续..."
         read
     done
 }
-
 
 # 显示操作菜单选项
 display_menu() {
@@ -1188,7 +1242,6 @@ display_menu() {
     kernel_version=$(uname -r)
     # 获取当前内存使用率（以百分比形式）
     memory_usage=$(free | awk '/Mem/{printf("%.2f", $3/$2 * 100)}')
-
 
     # 设置颜色和样式
     GREEN='\033[0;32m'
@@ -1220,14 +1273,14 @@ display_menu() {
 
     os_type=$(get_os_info)
     case $os_type in
-        "Debian/Ubuntu")
-            echo -e "${GREEN} 10${RESET}      下载并安装 XanMod 内核 (BBRv3)"
-            echo -e "${GREEN} 11${RESET}      卸载 XanMod 内核，并恢复原有内核"
-            if [[ $os_type == "Debian"* ]]; then
-                echo -e "${GREEN} 12${RESET}      安装 Debian Cloud 内核"
-                echo -e "${GREEN} 13${RESET}      卸载 Debian Cloud 内核，并恢复原有内核"
-            fi
-            ;;
+    "Debian/Ubuntu")
+        echo -e "${GREEN} 10${RESET}      下载并安装 XanMod 内核 (BBRv3)"
+        echo -e "${GREEN} 11${RESET}      卸载 XanMod 内核，并恢复原有内核"
+        if [[ $os_type == "Debian"* ]]; then
+            echo -e "${GREEN} 12${RESET}      安装 Debian Cloud 内核"
+            echo -e "${GREEN} 13${RESET}      卸载 Debian Cloud 内核，并恢复原有内核"
+        fi
+        ;;
     esac
 
     echo -e "${GREEN} 14${RESET}      设置防火墙端口"
@@ -1236,37 +1289,35 @@ display_menu() {
     echo -e "${BOLD}输入${RESET} 'q' ${BOLD}退出${RESET}"
 }
 
-
 # 根据用户选择执行相应的操作
 handle_choice() {
     clear
     case $1 in
-        1) install_components ;;
-        2) add_public_key ;;
-        3) disable_ssh_password_login ;;
-        4) modify_ssh_port ;;
-        5) add_docker_tools ;;
-        6) set_virtual_memory ;;
-        7) modify_swap_usage_threshold ;;
-        8) cleanup_swap ;;
-        9) optimize_kernel_parameters ;;
-        10) install_xanmod_kernel ;;
-        11) uninstall_xanmod_kernel ;;
-        12) install_debian_cloud_kernel ;;
-        13) uninstall_debian_cloud_kernel ;;
-        14) set_firewall_ports ;;
-        15) configure_zram_menu ;;
-        q|Q) return 1 ;; # 返回非零值来退出循环
-        *) echo "无效的选项，请输入合法的选项数字。" ;;
+    1) install_components ;;
+    2) add_public_key ;;
+    3) disable_ssh_password_login ;;
+    4) modify_ssh_port ;;
+    5) add_docker_tools ;;
+    6) set_virtual_memory ;;
+    7) modify_swap_usage_threshold ;;
+    8) cleanup_swap ;;
+    9) optimize_kernel_parameters ;;
+    10) install_xanmod_kernel ;;
+    11) uninstall_xanmod_kernel ;;
+    12) install_debian_cloud_kernel ;;
+    13) uninstall_debian_cloud_kernel ;;
+    14) set_firewall_ports ;;
+    15) configure_zram_menu ;;
+    q | Q) return 1 ;; # 返回非零值来退出循环
+    *) echo "无效的选项，请输入合法的选项数字。" ;;
     esac
     read -p "按 Enter 键回到主菜单..."
 }
 
-
-# 主函数，接受选项并执行相应的脚本  
+# 主函数，接受选项并执行相应的脚本
 main() {
     trap cleanup EXIT
-    
+
     while true; do
         display_menu
         read -p "请输入选项数字：" choice
@@ -1276,7 +1327,6 @@ main() {
     echo "欢迎再次使用本脚本！"
     sleep 0.5s
 }
-
 
 # 清理函数，在脚本退出时执行
 cleanup() {
