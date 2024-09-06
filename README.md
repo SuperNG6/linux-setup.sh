@@ -9,6 +9,8 @@ CentOS、Fedora 和 Arch Linux 请自测，已做兼容处理，未测试，并�
 
 这是一个用于在Linux系统上执行一系列设置操作的脚本。它可以帮助完成一些常见的配置任务，如安装必要组件、添加SSH公钥、关闭SSH密码登录、设置虚拟内存等。此外，还提供了优化内核参数和下载安装XanMod内核的选项。
 
+自动 IP 判断，国内使用镜像加速功能，从 docker 官方安装 docker | compose v2
+
 # 功能说明
 
 ## 选项 1：安装必要组件
@@ -88,6 +90,7 @@ CentOS、Fedora 和 Arch Linux 请自测，已做兼容处理，未测试，并�
 2. 运行脚本：
    ```bash
    /bin/bash <(wget -qO - bit.ly/ls-set)
+   # 或 /bin/bash <(wget -qO - bit.ly/ls-set-cn)
    ```
    或
    ```bash
@@ -96,6 +99,7 @@ CentOS、Fedora 和 Arch Linux 请自测，已做兼容处理，未测试，并�
    或
    ```bash
    /bin/bash <(wget -qO - https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/server-setup.sh)
+   # 或 /bin/bash <(wget -qO - https://mirror.ghproxy.com/https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/server-setup.sh)
    ```
 
    或者，也可以克隆整个仓库：

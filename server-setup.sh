@@ -176,18 +176,15 @@ install_components() {
 
     echo "其他组件安装成功，现在开始安装Docker和Docker Compose。"
 
-    # 从 docker 官方安装 docker
-    bash <(wget -qO - "https://get.docker.com ${ACC}") || {
+    local docker_url
+    if [ -n "${ACC}" ]; then
+        docker_url="https://get.docker.com ${ACC}"
+    else
+        docker_url="https://get.docker.com"
+    fi
+    echo "使用以下地址安装: ${docker_url}"
+    bash <(wget -qO - "${docker_url}") || {
         echo "安装Docker失败"
-        return 1
-    }
-    # 从 docker 官方安装 docker-compose v2
-    curl -L "${YES_CN}/https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose || {
-        echo "下载Docker Compose失败"
-        return 1
-    }
-    chmod +x /usr/local/bin/docker-compose || {
-        echo "为Docker Compose添加执行权限失败"
         return 1
     }
 
@@ -311,7 +308,7 @@ add_docker_tools() {
         mkdir -p "$tools_folder"
 
         # 下载dlogs.sh脚本
-        wget -qO "$tools_folder/dlogs.sh" "${YES_CN}/https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/dlogs.sh"
+        wget -qO "$tools_folder/dlogs.sh" "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/dlogs.sh"
         if [ $? -eq 0 ]; then
             chmod +x "$tools_folder/dlogs.sh"
             echo "dlogs.sh脚本已下载并添加到 $tools_folder 文件夹。"
@@ -320,7 +317,7 @@ add_docker_tools() {
         fi
 
         # 下载dcip.sh脚本
-        wget -qO "$tools_folder/dcip.sh" "${YES_CN}/https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/dcip.sh"
+        wget -qO "$tools_folder/dcip.sh" "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/dcip.sh"
         if [ $? -eq 0 ]; then
             chmod +x "$tools_folder/dcip.sh"
             echo "dcip.sh脚本已下载并添加到 $tools_folder 文件夹。"
@@ -334,6 +331,7 @@ add_docker_tools() {
         else
             # 追加alias到.bashrc文件
             echo 'alias nginx="docker exec -i docker_nginx nginx"' >>/root/.bashrc
+            echo 'alias docker-compose="docker compose"' >>/root/.bashrc
             echo 'alias dc="docker-compose"' >>/root/.bashrc
             echo 'alias dspa="docker system prune -a"' >>/root/.bashrc
             echo 'alias dcs="docker-compose ps -q | xargs docker stats"' >>/root/.bashrc
@@ -653,7 +651,7 @@ install_xanmod_kernel() {
     echo "当前内核版本：$(uname -r)"
 
     # 检查 CPU 支持的指令集级别
-    cpu_support_info=$(/usr/bin/awk -f <(wget -qO - "${YES_CN}/https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/check_x86-64_psabi.sh"))
+    cpu_support_info=$(/usr/bin/awk -f <(wget -qO - "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/check_x86-64_psabi.sh"))
     if [[ $cpu_support_info == "CPU supports x86-64-v"* ]]; then
         cpu_support_level=${cpu_support_info#CPU supports x86-64-v}
         echo "你的CPU支持XanMod内核，级别为 x86-64-v$cpu_support_level"
