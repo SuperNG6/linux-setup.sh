@@ -90,7 +90,6 @@ CentOS、Fedora 和 Arch Linux 请自测，已做兼容处理，未测试，并�
 2. 运行脚本：
    ```bash
    /bin/bash <(wget -qO - bit.ly/ls-set)
-   # 或 /bin/bash <(wget -qO - bit.ly/ls-set-cn)
    ```
    或
    ```bash
