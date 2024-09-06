@@ -202,31 +202,57 @@ add_public_key() {
 
     # 检查公钥是否为空
     if [ -z "$public_key" ]; then
-        echo "无效的公钥。"
+        echo "错误: 公钥不能为空。"
         return 1
     fi
 
     # 检查公钥格式
-    if [[ ! "$public_key" =~ ^ssh-rsa[[:space:]]+[A-Za-z0-9+/]+[=]{0,3}(\s*.+)? ]]; then
-        echo "无效的公钥格式。"
+    if ! [[ "$public_key" =~ ^(ssh-rsa|ssh-ed25519|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521)[[:space:]]+[A-Za-z0-9+/]+[=]{0,3}([[:space:]]+.+)?$ ]]; then
+        echo "错误: 无效的公钥格式。"
         return 1
     fi
 
-    # 备份原始authorized_keys文件
+    # 确保 .ssh 目录存在
+    if [ ! -d ~/.ssh ]; then
+        mkdir -p ~/.ssh
+        chmod 700 ~/.ssh
+    fi
+
+    # 确保 authorized_keys 文件存在
+    touch ~/.ssh/authorized_keys
+    chmod 600 ~/.ssh/authorized_keys
+
+    # 检查公钥是否已存在
+    if grep -qF "$public_key" ~/.ssh/authorized_keys; then
+        echo "警告: 该公钥已存在于 authorized_keys 文件中。"
+        return 0
+    fi
+
+    # 备份原始 authorized_keys 文件
     cp ~/.ssh/authorized_keys ~/.ssh/authorized_keys.bak
 
-    # 追加公钥到authorized_keys文件
-    echo "$public_key" >>~/.ssh/authorized_keys
-
-    # 检查是否成功追加公钥
-    if [ $? -eq 0 ]; then
-        echo "公钥添加成功。"
+    # 追加公钥到 authorized_keys 文件
+    if echo "$public_key" >>~/.ssh/authorized_keys; then
+        echo "成功: 公钥已添加。"
     else
-        echo "公钥添加失败。"
-        # 恢复备份的authorized_keys文件
+        echo "错误: 无法添加公钥。"
+        # 恢复备份的 authorized_keys 文件
         mv ~/.ssh/authorized_keys.bak ~/.ssh/authorized_keys
         return 1
     fi
+
+    # 验证公钥是否成功添加
+    if ! grep -qF "$public_key" ~/.ssh/authorized_keys; then
+        echo "错误: 公钥添加失败，未在 authorized_keys 文件中找到。"
+        # 恢复备份的 authorized_keys 文件
+        mv ~/.ssh/authorized_keys.bak ~/.ssh/authorized_keys
+        return 1
+    fi
+
+    # 删除备份文件
+    rm ~/.ssh/authorized_keys.bak
+
+    return 0
 }
 
 # 关闭SSH密码登录
