@@ -38,16 +38,19 @@ get_os_info() {
 }
 
 # 检查IP地址是否在中国
-check_ip_location() {
+set_mirror() {
     local IP=$(curl -s ipinfo.io/ip)
     local COUNTRY=$(curl -s ipinfo.io/country)
 
     if [ "$COUNTRY" = "CN" ]; then
-        echo "cn"
+        YES_CN="https://mirror.ghproxy.com/"
+        ACC="--mirror AzureChinaCloud"
     else
-        echo "overseas"
+        YES_CN=""
+        ACC=""
     fi
 }
+set_mirror
 
 # 检查已安装的防火墙类型
 check_firewall() {
@@ -103,7 +106,7 @@ display_open_ports() {
 # 安装必要组件
 install_components() {
     echo "是否需要安装必要组件？(y/n)"
-    echo "docker.io docker-compose fail2ban vim curl"
+    echo "docker docker-compose fail2ban vim curl"
     read choice
 
     if [ "$choice" != "y" ] && [ "$choice" != "Y" ]; then
@@ -124,7 +127,7 @@ install_components() {
             return 1
         }
         # 安装组件，如果失败则退出
-        apt -y install docker.io docker-compose fail2ban vim curl || {
+        apt -y install fail2ban vim curl || {
             echo "安装组件失败"
             return 1
         }
@@ -136,7 +139,7 @@ install_components() {
             return 1
         }
         # 安装组件，如果失败则退出
-        yum -y install docker docker-compose fail2ban vim curl || {
+        yum -y install fail2ban vim curl || {
             echo "安装组件失败"
             return 1
         }
@@ -148,7 +151,7 @@ install_components() {
             return 1
         }
         # 安装组件，如果失败则退出
-        dnf -y install docker docker-compose fail2ban vim curl || {
+        dnf -y install fail2ban vim curl || {
             echo "安装组件失败"
             return 1
         }
@@ -160,7 +163,7 @@ install_components() {
             return 1
         }
         # 安装组件，如果失败则退出
-        pacman -S --noconfirm docker docker-compose fail2ban vim curl || {
+        pacman -S --noconfirm fail2ban vim curl || {
             echo "安装组件失败"
             return 1
         }
@@ -173,24 +176,20 @@ install_components() {
 
     echo "其他组件安装成功，现在开始安装Docker和Docker Compose。"
 
-    # 检查IP地址
-    location=$(check_ip_location)
-
-    if [ "$location" = "cn" ]; then
-        echo "检测到中国IP，使用国内镜像源安装Docker..."
-        bash <(wget -qO - https://get.docker.com --mirror AzureChinaCloud) || { echo "安装Docker失败"; return 1; }
-        
-        echo "安装Docker Compose..."
-        curl -L "https://mirror.ghproxy.com/https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose || { echo "下载Docker Compose失败"; return 1; }
-        chmod +x /usr/local/bin/docker-compose || { echo "为Docker Compose添加执行权限失败"; return 1; }
-    else
-        echo "检测到海外IP，使用官方源安装Docker..."
-        bash <(wget -qO - https://get.docker.com) || { echo "安装Docker失败"; return 1; }
-        
-        echo "安装Docker Compose..."
-        curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose || { echo "下载Docker Compose失败"; return 1; }
-        chmod +x /usr/local/bin/docker-compose || { echo "为Docker Compose添加执行权限失败"; return 1; }
-    fi
+    # 从 docker 官方安装 docker
+    bash <(wget -qO - "https://get.docker.com ${ACC}") || {
+        echo "安装Docker失败"
+        return 1
+    }
+    # 从 docker 官方安装 docker-compose v2
+    curl -L "${YES_CN}/https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose || {
+        echo "下载Docker Compose失败"
+        return 1
+    }
+    chmod +x /usr/local/bin/docker-compose || {
+        echo "为Docker Compose添加执行权限失败"
+        return 1
+    }
 
     echo "Docker和Docker Compose安装成功。"
     echo "所有组件安装完成。"
@@ -286,7 +285,7 @@ add_docker_tools() {
         mkdir -p "$tools_folder"
 
         # 下载dlogs.sh脚本
-        wget -qO "$tools_folder/dlogs.sh" "https://mirror.ghproxy.com/https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/dlogs.sh"
+        wget -qO "$tools_folder/dlogs.sh" "${YES_CN}/https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/dlogs.sh"
         if [ $? -eq 0 ]; then
             chmod +x "$tools_folder/dlogs.sh"
             echo "dlogs.sh脚本已下载并添加到 $tools_folder 文件夹。"
@@ -295,7 +294,7 @@ add_docker_tools() {
         fi
 
         # 下载dcip.sh脚本
-        wget -qO "$tools_folder/dcip.sh" "https://mirror.ghproxy.com/https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/dcip.sh"
+        wget -qO "$tools_folder/dcip.sh" "${YES_CN}/https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/dcip.sh"
         if [ $? -eq 0 ]; then
             chmod +x "$tools_folder/dcip.sh"
             echo "dcip.sh脚本已下载并添加到 $tools_folder 文件夹。"
@@ -628,7 +627,7 @@ install_xanmod_kernel() {
     echo "当前内核版本：$(uname -r)"
 
     # 检查 CPU 支持的指令集级别
-    cpu_support_info=$(/usr/bin/awk -f <(wget -qO - https://mirror.ghproxy.com/https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/check_x86-64_psabi.sh))
+    cpu_support_info=$(/usr/bin/awk -f <(wget -qO - "${YES_CN}/https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/check_x86-64_psabi.sh"))
     if [[ $cpu_support_info == "CPU supports x86-64-v"* ]]; then
         cpu_support_level=${cpu_support_info#CPU supports x86-64-v}
         echo "你的CPU支持XanMod内核，级别为 x86-64-v$cpu_support_level"
@@ -675,19 +674,9 @@ install_xanmod_kernel() {
             ;;
         esac
 
-
-        # 检查IP地址
-        location=$(check_ip_location)
-
-        if [ "$location" = "cn" ]; then
-            # 使用镜像加速下载内核文件
-            wget "https://mirror.ghproxy.com/https://github.com/SuperNG6/linux-setup.sh/releases/download/0816/$headers_file"
-            wget "https://mirror.ghproxy.com/https://github.com/SuperNG6/linux-setup.sh/releases/download/0816/$image_file"
-        else
-            # 下载内核文件
-            wget "https://github.com/SuperNG6/linux-setup.sh/releases/download/0816/$headers_file"
-            wget "https://github.com/SuperNG6/linux-setup.sh/releases/download/0816/$image_file"
-        fi
+        # 下载内核文件
+        wget "${YES_CN}https://github.com/SuperNG6/linux-setup.sh/releases/download/0816/$headers_file"
+        wget "${YES_CN}https://github.com/SuperNG6/linux-setup.sh/releases/download/0816/$image_file"
 
         # 校验 MD5 值
         if [ "$(md5sum $headers_file | awk '{print $1}')" != "$headers_md5" ]; then

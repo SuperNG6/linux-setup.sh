@@ -1,15 +1,13 @@
 #!/bin/bash
 
 # 检查是否以 root 用户执行脚本
-if [ "$EUID" -ne 0 ]
-then
+if [ "$EUID" -ne 0 ]; then
     echo "请以 root 用户执行该脚本"
     exit
 fi
 
 # 检查 Docker 是否运行
-if ! systemctl is-active --quiet docker
-then
+if ! systemctl is-active --quiet docker; then
     echo "Docker 服务未运行，请启动 Docker"
     exit
 fi
@@ -30,14 +28,12 @@ fi
 echo "获取 Docker 容器的 IP 地址..."
 
 # 遍历所有 Docker 容器
-docker ps -q | while read -r id
-do
+docker ps -q | while read -r id; do
     # 获取容器名称
     container_name=$(docker inspect -f '{{ .Name }}' "$id" | sed 's/^\///')
     # 获取容器所有网络接口的 IP 地址
     container_ips=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$id")
-    for ip in $container_ips
-    do
+    for ip in $container_ips; do
         # 判断容器名称和 IP 地址是否为空
         if [[ -n "$container_name" ]] && [[ -n "$ip" ]]; then
             echo "添加 $ip 对应的 $container_name"
