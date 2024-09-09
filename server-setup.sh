@@ -195,7 +195,10 @@ install_components() {
 # 添加要登记设备的公钥
 add_public_key() {
     echo "请输入公钥："
-    read public_key
+    read -r public_key
+
+    # 去除额外的换行符或空格
+    public_key=$(echo "$public_key" | tr -d '\n' | tr -d ' ')
 
     # 检查公钥是否为空
     if [ -z "$public_key" ]; then
@@ -226,6 +229,9 @@ add_public_key() {
     fi
 
     # 备份原始 authorized_keys 文件
+    if [ -f ~/.ssh/authorized_keys.bak ]; then
+        mv ~/.ssh/authorized_keys.bak ~/.ssh/authorized_keys.bak.old
+    fi
     cp ~/.ssh/authorized_keys ~/.ssh/authorized_keys.bak
 
     # 追加公钥到 authorized_keys 文件
@@ -251,6 +257,7 @@ add_public_key() {
 
     return 0
 }
+
 
 # 关闭SSH密码登录
 disable_ssh_password_login() {
