@@ -194,70 +194,75 @@ install_components() {
 
 # 添加要登记设备的公钥
 add_public_key() {
+    local public_key authorized_keys_file backup_file
+    authorized_keys_file="${HOME}/.ssh/authorized_keys"
+    backup_file="${authorized_keys_file}.bak"
+
     echo "请输入公钥："
     read -r public_key
 
     # 去除额外的换行符或空格
-    public_key=$(echo "$public_key" | tr -d '\n' | tr -d ' ')
+    public_key="${public_key//[$'\t\r\n ']/}"
 
     # 检查公钥是否为空
-    if [ -z "$public_key" ]; then
-        echo "错误: 公钥不能为空。"
+    if [[ -z "$public_key" ]]; then
+        echo "错误: 公钥不能为空。" >&2
         return 1
     fi
 
     # 检查公钥格式
-    if ! [[ "$public_key" =~ ^(ssh-rsa|ssh-ed25519|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521)[[:space:]]+[A-Za-z0-9+/]+[=]{0,3}([[:space:]]+.+)?$ ]]; then
-        echo "错误: 无效的公钥格式。"
+    if ! [[ "$public_key" =~ ^(ssh-rsa|ssh-ed25519|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521)[[:space:]]([A-Za-z0-9+/]{4})*([A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?([[:space:]][^@]+@[^[:space:]]+)?$ ]]; then
+        echo "错误: 无效的公钥格式。" >&2
         return 1
     fi
 
-    # 确保 .ssh 目录存在
-    if [ ! -d ~/.ssh ]; then
-        mkdir -p ~/.ssh
-        chmod 700 ~/.ssh
-    fi
+    # 确保 .ssh 目录存在并设置正确的权限
+    mkdir -p "${HOME}/.ssh" && chmod 700 "${HOME}/.ssh" || {
+        echo "错误: 无法创建或设置 .ssh 目录权限。" >&2
+        return 1
+    }
 
-    # 确保 authorized_keys 文件存在
-    touch ~/.ssh/authorized_keys
-    chmod 600 ~/.ssh/authorized_keys
+    # 如果 authorized_keys 文件不存在，创建它并设置正确的权限
+    [[ -f "$authorized_keys_file" ]] || {
+        touch "$authorized_keys_file" && chmod 600 "$authorized_keys_file" || {
+            echo "错误: 无法创建或设置 authorized_keys 文件权限。" >&2
+            return 1
+        }
+    }
 
     # 检查公钥是否已存在
-    if grep -qF "$public_key" ~/.ssh/authorized_keys; then
+    if grep -qF -- "$public_key" "$authorized_keys_file"; then
         echo "警告: 该公钥已存在于 authorized_keys 文件中。"
         return 0
     fi
 
-    # 备份原始 authorized_keys 文件
-    if [ -f ~/.ssh/authorized_keys.bak ]; then
-        mv ~/.ssh/authorized_keys.bak ~/.ssh/authorized_keys.bak.old
-    fi
-    cp ~/.ssh/authorized_keys ~/.ssh/authorized_keys.bak
+    # 备份 authorized_keys 文件
+    cp -f "$authorized_keys_file" "$backup_file" || {
+        echo "错误: 无法创建备份文件。" >&2
+        return 1
+    }
 
     # 追加公钥到 authorized_keys 文件
-    if echo "$public_key" >>~/.ssh/authorized_keys; then
+    if echo "$public_key" >>"$authorized_keys_file"; then
         echo "成功: 公钥已添加。"
     else
-        echo "错误: 无法添加公钥。"
-        # 恢复备份的 authorized_keys 文件
-        mv ~/.ssh/authorized_keys.bak ~/.ssh/authorized_keys
+        echo "错误: 无法添加公钥。" >&2
+        mv -f "$backup_file" "$authorized_keys_file"
         return 1
     fi
 
     # 验证公钥是否成功添加
-    if ! grep -qF "$public_key" ~/.ssh/authorized_keys; then
-        echo "错误: 公钥添加失败，未在 authorized_keys 文件中找到。"
-        # 恢复备份的 authorized_keys 文件
-        mv ~/.ssh/authorized_keys.bak ~/.ssh/authorized_keys
+    if ! grep -qF -- "$public_key" "$authorized_keys_file"; then
+        echo "错误: 公钥添加失败，未在 authorized_keys 文件中找到。" >&2
+        mv -f "$backup_file" "$authorized_keys_file"
         return 1
     fi
 
     # 删除备份文件
-    rm ~/.ssh/authorized_keys.bak
+    rm -f "$backup_file"
 
     return 0
 }
-
 
 # 关闭SSH密码登录
 disable_ssh_password_login() {
