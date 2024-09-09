@@ -1027,15 +1027,6 @@ set_firewall_ports() {
     esac
 }
 
-# 检查系统是否支持ZRAM
-check_zram_support() {
-    if [ -d "/sys/class/zram-control" ]; then
-        return 0 # 支持ZRAM
-    else
-        return 1 # 不支持ZRAM
-    fi
-}
-
 # 检查ZRAM是否已安装
 is_zram_installed() {
     if lsmod | grep -q zram && command -v zramctl >/dev/null; then
@@ -1205,11 +1196,6 @@ uninstall_zram() {
 
 # ZRAM配置菜单
 configure_zram_menu() {
-    if ! check_zram_support; then
-        echo "您的系统不支持ZRAM。"
-        return 1
-    fi
-
     while true; do
         clear
         echo "ZRAM配置菜单"
