@@ -337,19 +337,25 @@ add_docker_tools() {
             echo "下载dcip.sh脚本失败。"
         fi
 
+        # 下载docker_aliases.sh脚本
+        wget -qO "$tools_folder/docker_aliases.sh" "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/docker_aliases.sh"
+        if [ $? -eq 0 ]; then
+            chmod +x "$tools_folder/docker_aliases.sh"
+            echo "docker_aliases.sh脚本已下载并添加到 $tools_folder 文件夹。"
+        else
+            echo "下载docker_aliases.sh脚本失败。"
+        fi
+
         # 检查是否已经存在别名，避免重复添加
-        if grep -q "alias nginx=" /root/.bashrc; then
+        if grep -q "docker_aliases.sh" /root/.bashrc; then
             echo "别名已存在，无需重复添加。"
         else
             # 追加alias到.bashrc文件
-            echo 'alias nginx="docker exec -i docker_nginx nginx"' >>/root/.bashrc
-            echo 'alias docker-compose="docker compose"' >>/root/.bashrc
-            echo 'alias dc="docker-compose"' >>/root/.bashrc
-            echo 'alias dspa="docker system prune -a"' >>/root/.bashrc
-            echo 'alias dcs="docker-compose ps -q | xargs docker stats"' >>/root/.bashrc
-            echo 'alias dcps="docker ps $((docker-compose ps -q  || echo "#") | while read line; do echo "--filter id=$line"; done)"' >>/root/.bashrc
-            echo 'alias dcip="bash /root/.docker_tools/dcip.sh"' >>/root/.bashrc
-            echo 'alias dlogs="bash /root/.docker_tools/dlogs.sh"' >>/root/.bashrc
+            cat <<EOF >/root/.bashrc
+if [ -f /root/.docker_tools/docker_aliases.sh ]; then
+    . /root/.docker_tools/docker_aliases.sh
+fi
+EOF
         fi
         echo "docker工具箱已成功安装。"
         ;;
