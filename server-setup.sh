@@ -201,18 +201,9 @@ add_public_key() {
     echo "请输入公钥："
     read -r public_key
 
-    # 去除额外的换行符或空格
-    public_key="${public_key//[$'\t\r\n ']/}"
-
     # 检查公钥是否为空
     if [[ -z "$public_key" ]]; then
         echo "错误: 公钥不能为空。" >&2
-        return 1
-    fi
-
-    # 检查公钥格式
-    if ! [[ "$public_key" =~ ^(ssh-rsa|ssh-ed25519|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521)[[:space:]]([A-Za-z0-9+/]{4})*([A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?([[:space:]][^@]+@[^[:space:]]+)?$ ]]; then
-        echo "错误: 无效的公钥格式。" >&2
         return 1
     fi
 
@@ -297,11 +288,12 @@ add_docker_tools() {
     echo "docker工具箱，添加便捷指令."
     echo "功能1、nginx命令=docker nginx"
     echo "功能2、dlogs命令=查看docker容器日志"
-    echo "功能3、dspa命令=清理不再使用的 docker 镜像、容器和网络"
-    echo "功能4、dc命令=docker-compose"
-    echo "功能5、dcs命令=查看docker-compose容器状态（需要在compose.yml文件夹内执行）"
-    echo "功能6、dcps命令=查看docker-compose容器（需要在compose.yml文件夹内执行）"
-    echo "功能7、dcip命令=查看容器ip，并添加到宿主机hosts中"
+    echo "功能3、dr命令=重启指定容器"
+    echo "功能4、dspa命令=清理不再使用的 docker 镜像、容器和网络"
+    echo "功能5、dc命令=docker-compose"
+    echo "功能6、dcs命令=查看docker-compose容器状态（需要在compose.yml文件夹内执行）"
+    echo "功能7、dcps命令=查看docker-compose容器（需要在compose.yml文件夹内执行）"
+    echo "功能8、dcip命令=查看容器ip，并添加到宿主机hosts中"
     echo "工具脚本保存在"/root/.docker_tools"文件夹中，请勿删除"
     echo "-----------------------------------"
 
@@ -319,36 +311,20 @@ add_docker_tools() {
         tools_folder="/root/.docker_tools"
         mkdir -p "$tools_folder"
 
-        # 下载dlogs.sh脚本
+        # 下载脚本
+        wget -qO "$tools_folder/docker_compose_cmd.sh" "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/docker_compose_cmd.sh"
         wget -qO "$tools_folder/dlogs.sh" "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/dlogs.sh"
-        if [ $? -eq 0 ]; then
-            chmod +x "$tools_folder/dlogs.sh"
-            echo "dlogs.sh脚本已下载并添加到 $tools_folder 文件夹。"
-        else
-            echo "下载dlogs.sh脚本失败。"
-        fi
-
-        # 下载dcip.sh脚本
         wget -qO "$tools_folder/dcip.sh" "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/dcip.sh"
-        if [ $? -eq 0 ]; then
-            chmod +x "$tools_folder/dcip.sh"
-            echo "dcip.sh脚本已下载并添加到 $tools_folder 文件夹。"
-        else
-            echo "下载dcip.sh脚本失败。"
-        fi
-
-        # 下载docker_aliases.sh脚本
+        wget -qO "$tools_folder/drestart.sh" "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/drestart.sh"
+        wget -qO "$tools_folder/dcps.sh" "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/dcps.sh"
+        wget -qO "$tools_folder/dcstats.sh" "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/dcstats.sh"
         wget -qO "$tools_folder/docker_aliases.sh" "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/docker_aliases.sh"
-        if [ $? -eq 0 ]; then
-            chmod +x "$tools_folder/docker_aliases.sh"
-            echo "docker_aliases.sh脚本已下载并添加到 $tools_folder 文件夹。"
-        else
-            echo "下载docker_aliases.sh脚本失败。"
-        fi
+        find "$tools_folder" -name "*.sh" -exec chmod +x {} \;
+        echo "下载成功"
 
         # 检查是否已经存在别名，避免重复添加
         if grep -q "docker_aliases.sh" /root/.bashrc; then
-            echo "别名已存在，无需重复添加。"
+            echo "别名已存在，正在更新中……"
         else
             # 追加alias到.bashrc文件
             cat <<EOF >/root/.bashrc
