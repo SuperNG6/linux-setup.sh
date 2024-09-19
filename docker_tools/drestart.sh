@@ -10,7 +10,7 @@ if [ ${#containers[@]} -eq 0 ]; then
 fi
 
 # 打印选项菜单
-echo "请选择要查看日志的容器："
+echo "请选择要重启的容器："
 for i in "${!containers[@]}"; do
     echo "$((i + 1)). ${containers[$i]}"
 done

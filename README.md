@@ -37,9 +37,11 @@ CentOS、Fedora 和 Arch Linux 请自测，已做兼容处理，未测试，并�
     功能2、dlogs命令=查看docker容器日志
     功能3、dspa命令=清理不再使用的 docker 镜像、容器和网络
     功能4、dc命令=docker-compose
-    功能5、dcs命令=查看docker-compose容器状态（需要在compose.yml文件夹内执行）
-    功能6、dcps命令=查看docker-compose容器（需要在compose.yml文件夹内执行）
+    功能5、dcs命令=查看docker-compose容器状态
+    功能6、dcps命令=查看docker-compose容器
     功能7、dcip命令=查看容器ip，并添加到宿主机hosts中
+    功能8、dr命令=重启指定容器
+    功能9、dcr命令=重启指定compose(默认为 dcr -r 重启指定compose容器，dcr -R 完全重建指定compose)
 
 ## 选项 6：设置虚拟内存
 

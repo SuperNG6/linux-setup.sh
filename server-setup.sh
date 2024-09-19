@@ -288,12 +288,13 @@ add_docker_tools() {
     echo "docker工具箱，添加便捷指令."
     echo "功能1、nginx命令=docker nginx"
     echo "功能2、dlogs命令=查看docker容器日志"
-    echo "功能3、dr命令=重启指定容器"
-    echo "功能4、dspa命令=清理不再使用的 docker 镜像、容器和网络"
-    echo "功能5、dc命令=docker-compose"
-    echo "功能6、dcs命令=查看docker-compose容器状态（需要在compose.yml文件夹内执行）"
-    echo "功能7、dcps命令=查看docker-compose容器（需要在compose.yml文件夹内执行）"
-    echo "功能8、dcip命令=查看容器ip，并添加到宿主机hosts中"
+    echo "功能3、dspa命令=清理不再使用的 docker 镜像、容器和网络"
+    echo "功能4、dc命令=docker-compose"
+    echo "功能5、dcs命令=查看docker-compose容器状态"
+    echo "功能6、dcps命令=查看docker-compose容器"
+    echo "功能7、dcip命令=查看容器ip，并添加到宿主机hosts中"
+    echo "功能8、dr命令=重启指定容器"
+    echo "功能9、dcr命令=重启指定compose"
     echo "工具脚本保存在"/root/.docker_tools"文件夹中，请勿删除"
     echo "-----------------------------------"
 
@@ -312,13 +313,14 @@ add_docker_tools() {
         mkdir -p "$tools_folder"
 
         # 下载脚本
-        wget -qO "$tools_folder/docker_compose_cmd.sh" "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/docker_compose_cmd.sh"
-        wget -qO "$tools_folder/dlogs.sh" "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/dlogs.sh"
-        wget -qO "$tools_folder/dcip.sh" "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/dcip.sh"
-        wget -qO "$tools_folder/drestart.sh" "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/drestart.sh"
-        wget -qO "$tools_folder/dcps.sh" "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/dcps.sh"
-        wget -qO "$tools_folder/dcstats.sh" "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/dcstats.sh"
-        wget -qO "$tools_folder/docker_aliases.sh" "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/docker_aliases.sh"
+        wget -qO "$tools_folder/docker_compose_utils.sh" "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/docker_tools/docker_compose_utils.sh"
+        wget -qO "$tools_folder/dlogs.sh" "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/docker_tools/dlogs.sh"
+        wget -qO "$tools_folder/dcip.sh" "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/docker_tools/dcip.sh"
+        wget -qO "$tools_folder/drestart.sh" "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/docker_tools/drestart.sh"
+        wget -qO "$tools_folder/dcrestart.sh" "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/docker_tools/dcrestart.sh"
+        wget -qO "$tools_folder/dcps.sh" "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/docker_tools/dcps.sh"
+        wget -qO "$tools_folder/dcstats.sh" "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/docker_tools/dcstats.sh"
+        wget -qO "$tools_folder/docker_aliases.sh" "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/docker_tools/docker_aliases.sh"
         find "$tools_folder" -name "*.sh" -exec chmod +x {} \;
         echo "下载成功"
 
@@ -645,7 +647,7 @@ install_xanmod_kernel() {
     echo "当前内核版本：$(uname -r)"
 
     # 检查 CPU 支持的指令集级别
-    cpu_support_info=$(/usr/bin/awk -f <(wget -qO - "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/check_x86-64_psabi.sh"))
+    cpu_support_info=$(/usr/bin/awk -f <(wget -qO - "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/docker_tools/check_x86-64_psabi.sh"))
     if [[ $cpu_support_info == "CPU supports x86-64-v"* ]]; then
         cpu_support_level=${cpu_support_info#CPU supports x86-64-v}
         echo "你的CPU支持XanMod内核，级别为 x86-64-v$cpu_support_level"
