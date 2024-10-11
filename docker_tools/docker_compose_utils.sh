@@ -9,6 +9,7 @@ check_docker_compose_version() {
     elif command -v docker-compose &>/dev/null; then
         compose_cmd="docker-compose"
     else
+        echo "未找到 Docker Compose。请确保已安装 Docker Compose。" >&2
         exit 1
     fi
 }
@@ -17,7 +18,7 @@ check_docker_compose_version() {
 select_docker_compose_dir() {
     # 检查当前目录是否包含docker-compose.yml或docker-compose.yaml
     if [ -f "docker-compose.yml" ] || [ -f "docker-compose.yaml" ]; then
-        echo "当前目录"
+        selected_folder="$PWD"
         return 0
     fi
 
@@ -55,11 +56,11 @@ select_docker_compose_dir() {
     fi
 
     # 获取用户选择的文件夹
-    local selected_folder=${folders[$((choice-1))]}
+    selected_folder=${folders[$((choice-1))]}
 
     # 输出选择的文件夹路径
     cd "$selected_folder" || {
-        echo "无法进入目录 $selected_folder，请检查路径是否正确。"
+        echo "无法进入目录 $selected_folder，请检查路径是否正确。" >&2
         exit 1
     }
 }
