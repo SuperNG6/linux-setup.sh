@@ -106,7 +106,7 @@ display_open_ports() {
 # 安装必要组件
 install_components() {
     echo "是否需要安装必要组件？(y/n)"
-    echo "docker docker-compose fail2ban vim curl"
+    echo "docker docker-compose fail2ban vim curl rsync"
     read choice
 
     if [ "$choice" != "y" ] && [ "$choice" != "Y" ]; then
@@ -127,7 +127,7 @@ install_components() {
             return 1
         }
         # 安装组件，如果失败则退出
-        apt -y install fail2ban vim curl || {
+        apt -y install fail2ban vim curl rsync || {
             echo "安装组件失败"
             return 1
         }
@@ -139,7 +139,7 @@ install_components() {
             return 1
         }
         # 安装组件，如果失败则退出
-        yum -y install fail2ban vim curl || {
+        yum -y install fail2ban vim curl rsync || {
             echo "安装组件失败"
             return 1
         }
@@ -151,7 +151,7 @@ install_components() {
             return 1
         }
         # 安装组件，如果失败则退出
-        dnf -y install fail2ban vim curl || {
+        dnf -y install fail2ban vim curl rsync || {
             echo "安装组件失败"
             return 1
         }
@@ -163,7 +163,7 @@ install_components() {
             return 1
         }
         # 安装组件，如果失败则退出
-        pacman -S --noconfirm fail2ban vim curl || {
+        pacman -S --noconfirm fail2ban vim curl rsync || {
             echo "安装组件失败"
             return 1
         }
