@@ -19,8 +19,8 @@ done
 read -p "请输入数字选择容器: " choice
 
 # 检查用户输入是否合法
-if ! [[ "$choice" =~ ^[1-9]+$ ]] || ((choice > ${#containers[@]})); then
-    echo "输入无效，请重新运行脚本并输入正确的数字。"
+if ! [[ "$choice" =~ ^[0-9]+$ ]] || ! ((choice > 0 && choice <= ${#containers[@]})); then
+    echo "输入无效，请输入 1 到 ${#containers[@]} 之间的数字。"
     exit 1
 fi
 
