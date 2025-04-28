@@ -26,3 +26,4 @@ fi
 
 # 执行docker restart命令
 docker restart "${containers[$((choice - 1))]}"
+echo "容器已重启"

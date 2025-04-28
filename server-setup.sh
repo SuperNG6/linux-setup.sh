@@ -106,7 +106,7 @@ display_open_ports() {
 # 安装必要组件
 install_components() {
     echo "是否需要安装必要组件？(y/n)"
-    echo "docker docker-compose fail2ban vim curl rsync"
+    echo "docker docker-compose fail2ban vim curl rsync ntpdate jq"
     read choice
 
     if [ "$choice" != "y" ] && [ "$choice" != "Y" ]; then
@@ -127,7 +127,7 @@ install_components() {
             return 1
         }
         # 安装组件，如果失败则退出
-        apt -y install fail2ban vim curl rsync || {
+        apt -y install fail2ban vim curl rsync ntpdate jq || {
             echo "安装组件失败"
             return 1
         }
@@ -139,7 +139,7 @@ install_components() {
             return 1
         }
         # 安装组件，如果失败则退出
-        yum -y install fail2ban vim curl rsync || {
+        yum -y install fail2ban vim curl rsync ntpdate jq || {
             echo "安装组件失败"
             return 1
         }
@@ -151,7 +151,7 @@ install_components() {
             return 1
         }
         # 安装组件，如果失败则退出
-        dnf -y install fail2ban vim curl rsync || {
+        dnf -y install fail2ban vim curl rsync ntpdate jq || {
             echo "安装组件失败"
             return 1
         }
@@ -163,7 +163,7 @@ install_components() {
             return 1
         }
         # 安装组件，如果失败则退出
-        pacman -S --noconfirm fail2ban vim curl rsync || {
+        pacman -S --noconfirm fail2ban vim curl rsync ntpdate jq || {
             echo "安装组件失败"
             return 1
         }
@@ -173,6 +173,10 @@ install_components() {
         return 1
         ;;
     esac
+    
+    echo "校准系统时间"
+    # 校准系统时间
+    ntpdate time.apple.com
 
     echo "其他组件安装成功，现在开始安装Docker和Docker Compose。"
 
