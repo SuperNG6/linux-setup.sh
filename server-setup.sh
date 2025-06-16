@@ -645,7 +645,7 @@ install_xanmod_kernel() {
     echo "当前内核版本：$(uname -r)"
 
     # 检查 CPU 支持的指令集级别
-    cpu_support_info=$(/usr/bin/awk -f <(wget -qO - "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/docker_tools/check_x86-64_psabi.sh"))
+    cpu_support_info=$(/usr/bin/awk -f <(wget -qO - "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/check_x86-64_psabi.sh"))
     if [[ $cpu_support_info == "CPU supports x86-64-v"* ]]; then
         cpu_support_level=${cpu_support_info#CPU supports x86-64-v}
         echo "你的CPU支持XanMod内核，级别为 x86-64-v$cpu_support_level"
@@ -1227,6 +1227,31 @@ configure_zram_menu() {
     done
 }
 
+
+# --- 设置 DNS (通过 dhclient) ---
+set_dns_dhclient() {
+    echo "正在准备通过dhclient设置CF、Google DNS..."
+    
+    # 检查是否为 Debian/Ubuntu，因为此方法特定于 dhclient
+    os_type=$(get_os_info)
+    if [[ "$os_type" != "Debian/Ubuntu" ]]; then
+        echo "错误：此功能目前仅适用于使用 dhclient 的 Debian/Ubuntu 系统。"
+        echo "操作已取消。"
+        return 1
+    fi
+
+    bash <(wget -qO - "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/set_dns_via_dhclient.sh")
+
+    if [ $? -eq 0 ]; then
+        echo ""
+        echo "CF、谷歌DNS 设置完毕。"
+    else
+        echo "错误：DNS 设置失败。"
+        return 1
+    fi
+}
+
+
 # 显示操作菜单选项
 display_menu() {
     # 获取当前Linux发行版本（包括版本号）
@@ -1278,6 +1303,7 @@ display_menu() {
 
     echo -e "${GREEN} 14${RESET}      设置防火墙端口"
     echo -e "${GREEN} 15${RESET}      配置 ZRAM"
+    echo -e "${GREEN} 16${RESET}      设置 CF、谷歌 DNS(DHCP)"
     echo "-----------------------------------"
     echo -e "${BOLD}输入${RESET} 'q' ${BOLD}退出${RESET}"
 }
@@ -1301,6 +1327,7 @@ handle_choice() {
     13) uninstall_debian_cloud_kernel ;;
     14) set_firewall_ports ;;
     15) configure_zram_menu ;;
+    16) set_dns_dhclient ;;
     q | Q) return 1 ;; # 返回非零值来退出循环
     *) echo "无效的选项，请输入合法的选项数字。" ;;
     esac
