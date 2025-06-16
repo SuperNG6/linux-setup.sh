@@ -83,6 +83,9 @@ CentOS、Fedora 和 Arch Linux 请自测，已做兼容处理，未测试，并�
 ## 选项 15：配置ZRAM
 选择此选项可以进行ZRAM配置，大幅优化VPS高内存压力下的使用体验
 
+## 选项 16：配置ZRAM
+选择此选项可以配置系统DNS为 CF、Google DNS 优化DNS解析速度，同时保持原有系统DNS（仅支持DHCP）
+
 ### dialog_menu
 去掉`display_dialog_menu`功能，维护两套菜单系统太复杂了，截图纪念
 ```
