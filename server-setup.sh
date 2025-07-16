@@ -1,31 +1,57 @@
 #!/bin/bash
 
+#================================================================================
+#
+#   Linux 服务器一键配置与优化脚本
+#
+#   作者: SuperNG6
+#   GitHub: https://github.com/SuperNG6/linux-setup.sh
+#
+#================================================================================
+
+
+# --- 全局变量和初始化 ---
+
+# 脚本启动时检查一次防火墙类型，并存入全局变量，避免重复执行
+# 后续所有防火墙操作都将依赖此变量
+FIREWALL_TYPE=""
+
+# 脚本启动时检查一次操作系统类型，并存入全局变量
+OS_TYPE=""
+
+# --- 基础检查与环境设置 ---
+
 # 检查是否具有足够的权限
 if [ "$(id -u)" != "0" ]; then
-    echo "需要管理员权限，请使用sudo运行此脚本。"
+    echo "错误：此脚本需要管理员权限，请使用 'sudo' 或以 'root' 用户身份运行。"
     exit 1
 fi
 
-# 获取操作系统信息
+# 获取操作系统发行版信息
+# @return {string} 返回 "Debian/Ubuntu", "CentOS", "Fedora", "Arch" 或 "Unknown"
 get_os_info() {
-    # 忽略大小写匹配
-
+    # 优先使用 /etc/os-release，这是现代 Linux 发行版的标准
     if [ -f /etc/os-release ]; then
+        # source 命令会把文件中的 key=value 格式的行作为变量导入
         source /etc/os-release
-        if [[ $ID == "debian" || $ID == "ubuntu" ]]; then
-            echo "Debian/Ubuntu"
-        elif [ $ID == "centos" ]; then
-            echo "CentOS"
-        elif [ $ID == "fedora" ]; then
-            echo "Fedora"
-        elif [ $ID == "arch" ]; then
-            echo "Arch"
-        # 添加更多的操作系统判断
-        # elif [ $ID == "some-other-os" ]; then
-        #     echo "Some Other OS"
-        else
-            echo "Unknown"
-        fi
+        case $ID in
+            debian|ubuntu)
+                echo "Debian/Ubuntu"
+                ;;
+            centos)
+                echo "CentOS"
+                ;;
+            fedora)
+                echo "Fedora"
+                ;;
+            arch)
+                echo "Arch"
+                ;;
+            *)
+                echo "Unknown"
+                ;;
+        esac
+    # 作为备用方案，检查特定发行版的文件
     elif [ -f /etc/centos-release ]; then
         echo "CentOS"
     elif [ -f /etc/fedora-release ]; then
@@ -37,192 +63,290 @@ get_os_info() {
     fi
 }
 
-# 检查IP地址是否在中国
+# 根据服务器IP地址的地理位置（是否在中国）设置镜像和下载参数
 set_mirror() {
-    local IP=$(curl -s ipinfo.io/ip)
-    local COUNTRY=$(curl -s ipinfo.io/country)
+    # 使用 ipinfo.io 查询公网 IP 和国家代码
+    local country
+    country=$(curl -s ipinfo.io/country)
 
-    if [ "$COUNTRY" = "CN" ]; then
+    if [ "$country" = "CN" ]; then
+        # 为 GitHub 和 Docker 设置国内加速镜像
         YES_CN="https://ghfast.top/"
         ACC="--mirror AzureChinaCloud"
+        echo "检测到服务器位于中国，已启用加速镜像。"
     else
         YES_CN=""
         ACC=""
+        echo "服务器不在中国，将使用默认源。"
     fi
 }
-set_mirror
 
-# 检查已安装的防火墙类型
+# --- 防火墙管理模块 (核心重构部分) ---
+
+# 检查系统中安装并激活了哪种防火墙管理工具
+# @return {string} 返回 "ufw", "firewalld", "iptables", "nftables" 或 "unknown"
 check_firewall() {
-    if command -v ufw &>/dev/null; then
-        echo "ufw" # 返回 ufw 表示安装了 ufw 防火墙
-    elif command -v firewalld &>/dev/null; then
-        echo "firewalld" # 返回 firewalld 表示安装了 firewalld 防火墙
+    if command -v ufw &>/dev/null && ufw status | grep -q "Status: active"; then
+        echo "ufw"
+    elif command -v firewall-cmd &>/dev/null && systemctl is-active --quiet firewalld; then
+        echo "firewalld"
     elif command -v iptables &>/dev/null; then
-        echo "iptables" # 返回 iptables 表示安装了 iptables 防火墙
-    elif command -v nft &>/dev/null; then
-        echo "nftables" # 返回 nftables 表示安装了 nftables 防火墙
+        # iptables 较为特殊，它始终存在，作为 nftables 的后端。
+        # 这里我们通过检查 nft 是否存在来优先判断 nftables。
+        if command -v nft &>/dev/null && systemctl is-active --quiet nftables; then
+            echo "nftables"
+        else
+            echo "iptables"
+        fi
+    elif command -v nft &>/dev/null && systemctl is-active --quiet nftables; then
+        echo "nftables"
     else
-        echo "unknown" # 返回 unknown 表示未安装支持的防火墙工具
+        echo "unknown"
     fi
 }
 
-# 根据已安装的防火墙显示当前开放的端口
-display_open_ports() {
-    firewall=$(check_firewall)
+# [适配器] 开放指定端口
+# 这是一个抽象函数，它将根据全局变量 $FIREWALL_TYPE 调用正确的底层命令。
+# @param {string} $1 - 端口号
+# @param {string} $2 - 协议 (tcp 或 udp)
+firewall_open_port() {
+    local port=$1
+    local protocol=$2
 
-    case $firewall in
+    if [[ -z "$port" || -z "$protocol" ]]; then
+        echo "错误: 开放端口需要提供端口号和协议。" >&2
+        return 1
+    fi
+
+    echo "正在为 [$FIREWALL_TYPE] 开放端口 $port/$protocol..."
+
+    case $FIREWALL_TYPE in
     "ufw")
-        echo "当前开放的防火墙端口 (TCP):"
-        ufw status | grep "ALLOW" | grep -oP '\d+/tcp' | sort -u
-        echo "当前开放的防火墙端口 (UDP):"
-        ufw status | grep "ALLOW" | grep -oP '\d+/udp' | sort -u
+        ufw allow "$port/$protocol" >/dev/null
         ;;
     "firewalld")
-        echo "当前开放的防火墙端口 (TCP):"
-        firewall-cmd --list-ports | grep "tcp"
-        echo "当前开放的防火墙端口 (UDP):"
-        firewall-cmd --list-ports | grep "udp"
+        firewall-cmd --zone=public --add-port="$port/$protocol" --permanent >/dev/null
+        firewall-cmd --reload >/dev/null
         ;;
     "iptables")
-        echo "当前开放的防火墙端口 (TCP):"
-        iptables-legacy -L INPUT -n --line-numbers | grep "tcp" | grep -oP '\d+' | sort -u
-        echo "当前开放的防火墙端口 (UDP):"
-        iptables-legacy -L INPUT -n --line-numbers | grep "udp" | grep -oP '\d+' | sort -u
+        iptables -A INPUT -p "$protocol" --dport "$port" -j ACCEPT
+        # 尝试持久化规则
+        if command -v iptables-save &>/dev/null && [ -d /etc/iptables/ ]; then
+            iptables-save > /etc/iptables/rules.v4
+        elif command -v service &>/dev/null; then
+            service iptables save &>/dev/null
+        fi
         ;;
     "nftables")
-        echo "当前开放的防火墙端口 (TCP):"
-        nft list ruleset | grep "tcp" | grep -oP '\d+' | sort -u
-        echo "当前开放的防火墙端口 (UDP):"
-        nft list ruleset | grep "udp" | grep -oP '\d+' | sort -u
+        nft add rule inet filter input "$protocol" dport "$port" accept
+        # 尝试持久化规则
+        if [ -f /etc/nftables.conf ]; then
+             nft list ruleset > /etc/nftables.conf
+        fi
         ;;
     *)
-        echo "找不到支持的防火墙。"
+        echo "错误：不支持的防火墙类型 '$FIREWALL_TYPE' 或未安装防火墙。" >&2
         return 1
         ;;
     esac
+
+    if [ $? -eq 0 ]; then
+        echo "成功开放端口 $port/$protocol。"
+    else
+        echo "错误：开放端口 $port/$protocol 失败。" >&2
+        return 1
+    fi
 }
 
-# 安装必要组件
-install_components() {
-    echo "是否需要安装必要组件？(y/n)"
-    echo "docker docker-compose fail2ban vim curl rsync ntpdate jq"
-    read choice
+# [适配器] 关闭指定端口
+# 这是一个抽象函数，它将根据全局变量 $FIREWALL_TYPE 调用正确的底层命令。
+# @param {string} $1 - 端口号
+# @param {string} $2 - 协议 (tcp 或 udp)
+firewall_close_port() {
+    local port=$1
+    local protocol=$2
 
-    if [ "$choice" != "y" ] && [ "$choice" != "Y" ]; then
+    if [[ -z "$port" || -z "$protocol" ]]; then
+        echo "错误: 关闭端口需要提供端口号和协议。" >&2
+        return 1
+    fi
+
+    echo "正在为 [$FIREWALL_TYPE] 关闭端口 $port/$protocol..."
+
+    case $FIREWALL_TYPE in
+    "ufw")
+        # 正确的 ufw 操作是删除已有的 allow 规则，而不是添加 deny 规则
+        ufw delete allow "$port/$protocol" >/dev/null
+        ;;
+    "firewalld")
+        firewall-cmd --zone=public --remove-port="$port/$protocol" --permanent >/dev/null
+        firewall-cmd --reload >/dev/null
+        ;;
+    "iptables")
+        # -D 表示删除规则
+        iptables -D INPUT -p "$protocol" --dport "$port" -j ACCEPT
+        # 尝试持久化规则
+        if command -v iptables-save &>/dev/null && [ -d /etc/iptables/ ]; then
+            iptables-save > /etc/iptables/rules.v4
+        elif command -v service &>/dev/null; then
+            service iptables save &>/dev/null
+        fi
+        ;;
+    "nftables")
+        # nftables 删除规则需要先找到规则的 handle
+        local handle=$(nft -a list ruleset | grep "dport $port" | grep "$protocol" | grep "accept" | awk '{print $NF}')
+        if [ -n "$handle" ]; then
+            nft delete rule inet filter input handle "$handle"
+            # 尝试持久化规则
+            if [ -f /etc/nftables.conf ]; then
+                nft list ruleset > /etc/nftables.conf
+            fi
+        else
+            echo "警告：在 nftables 中未找到匹配的规则来关闭端口 $port/$protocol。"
+            return 1
+        fi
+        ;;
+    *)
+        echo "错误：不支持的防火墙类型 '$FIREWALL_TYPE' 或未安装防火墙。" >&2
+        return 1
+        ;;
+    esac
+
+    if [ $? -eq 0 ]; then
+        echo "成功关闭端口 $port/$protocol。"
+    else
+        echo "错误：关闭端口 $port/$protocol 失败。" >&2
+        return 1
+    fi
+}
+
+
+# [适配器] 显示当前所有开放的端口
+# 使用更精确的命令来提取端口信息
+display_open_ports() {
+    echo "当前防火墙为: [$FIREWALL_TYPE]"
+    echo "=========================================="
+    echo "当前开放的防火墙端口:"
+
+    case $FIREWALL_TYPE in
+    "ufw")
+        # 使用 --bare 选项获得更简洁的输出
+        ufw status | grep "ALLOW"
+        ;;
+    "firewalld")
+        firewall-cmd --list-all
+        ;;
+    "iptables")
+        # 匹配 --dport 或 --dports 后面的端口号
+        iptables -L INPUT -n --line-numbers | grep "ACCEPT" | grep -E 'dpt:|dports'
+        ;;
+    "nftables")
+        # 匹配 dport 后面的端口号
+        nft list ruleset | grep "dport" | grep "accept"
+        ;;
+    *)
+        echo "找不到支持的防火墙，或防火墙未激活。"
+        return 1
+        ;;
+    esac
+    echo "=========================================="
+}
+
+# --- 系统功能模块 ---
+
+# 安装常用基础组件
+install_components() {
+    echo "此操作将安装: docker, docker-compose, fail2ban, vim, curl, rsync, ntpdate, jq"
+    read -p "是否继续？(y/n): " choice
+
+    if [[ "$choice" != "y" && "$choice" != "Y" ]]; then
         echo "取消安装。"
         return 1
     fi
 
     echo "正在安装必要组件..."
 
-    # 获取操作系统信息
-    os_type=$(get_os_info)
+    local pkg_manager=""
+    local update_cmd=""
+    local install_cmd=""
 
-    case $os_type in
-    Debian/Ubuntu)
-        # 更新软件包列表，如果失败则退出
-        apt -y update || {
-            echo "更新软件包列表失败"
-            return 1
-        }
-        # 安装组件，如果失败则退出
-        apt -y install fail2ban vim curl rsync ntpdate jq || {
-            echo "安装组件失败"
-            return 1
-        }
+    # 根据操作系统设置包管理器命令
+    case $OS_TYPE in
+    "Debian/Ubuntu")
+        pkg_manager="apt"
+        update_cmd="apt-get update -y"
+        install_cmd="apt-get install -y"
         ;;
-    CentOS)
-        # 更新软件包列表，如果失败则退出
-        yum -y update || {
-            echo "更新软件包列表失败"
-            return 1
-        }
-        # 安装组件，如果失败则退出
-        yum -y install fail2ban vim curl rsync ntpdate jq || {
-            echo "安装组件失败"
-            return 1
-        }
+    "CentOS")
+        pkg_manager="yum"
+        update_cmd="yum update -y"
+        install_cmd="yum install -y"
         ;;
-    Fedora)
-        # 更新软件包列表，如果失败则退出
-        dnf -y update || {
-            echo "更新软件包列表失败"
-            return 1
-        }
-        # 安装组件，如果失败则退出
-        dnf -y install fail2ban vim curl rsync ntpdate jq || {
-            echo "安装组件失败"
-            return 1
-        }
+    "Fedora")
+        pkg_manager="dnf"
+        update_cmd="dnf update -y"
+        install_cmd="dnf install -y"
         ;;
-    Arch)
-        # 更新软件包列表，如果失败则退出
-        pacman -Syu --noconfirm || {
-            echo "更新软件包列表失败"
-            return 1
-        }
-        # 安装组件，如果失败则退出
-        pacman -S --noconfirm fail2ban vim curl rsync ntpdate jq || {
-            echo "安装组件失败"
-            return 1
-        }
+    "Arch")
+        pkg_manager="pacman"
+        update_cmd="pacman -Syu --noconfirm"
+        install_cmd="pacman -S --noconfirm"
         ;;
     *)
         echo "无法确定操作系统类型，无法安装组件。"
         return 1
         ;;
     esac
-    
-    echo "校准系统时间"
-    # 校准系统时间
+
+    # 执行更新和安装
+    echo "正在更新软件包列表..."
+    $update_cmd || { echo "更新软件包列表失败"; return 1; }
+
+    echo "正在安装 fail2ban vim curl rsync ntpdate jq..."
+    $install_cmd fail2ban vim curl rsync ntpdate jq || { echo "安装基础组件失败"; return 1; }
+
+    echo "校准系统时间..."
     ntpdate time.apple.com
 
-    echo "其他组件安装成功，现在开始安装Docker和Docker Compose。"
+    echo "其他组件安装成功，现在开始安装 Docker 和 Docker Compose。"
 
-    local docker_url
+    # 使用加速镜像（如果已设置）安装 Docker
+    local docker_url="https://get.docker.com"
     if [ -n "${ACC}" ]; then
-        docker_url="https://get.docker.com ${ACC}"
+        # 在国内使用 Docker 官方脚本时，通过 --mirror 选项指定镜像源
+        bash <(curl -sSL "${docker_url}") "${ACC}" || { echo "使用镜像安装 Docker 失败"; return 1; }
     else
-        docker_url="https://get.docker.com"
+        bash <(curl -sSL "${docker_url}") || { echo "安装 Docker 失败"; return 1; }
     fi
-    echo "使用以下地址安装: ${docker_url}"
-    bash <(wget -qO - "${docker_url}") || {
-        echo "安装Docker失败"
-        return 1
-    }
 
-    echo "Docker和Docker Compose安装成功。"
+    echo "Docker 安装成功。"
     echo "所有组件安装完成。"
 }
 
-# 添加要登记设备的公钥
+# 添加公钥到 authorized_keys，用于 SSH 免密登录
 add_public_key() {
     local public_key authorized_keys_file backup_file
-    authorized_keys_file="${HOME}/.ssh/authorized_keys"
-    backup_file="${authorized_keys_file}.bak"
+    # 使用 ~ 而不是 $HOME 来确保在所有情况下都能正确解析主目录
+    authorized_keys_file=~/.ssh/authorized_keys
+    backup_file="${authorized_keys_file}.bak.$(date +%s)"
 
-    echo "请输入公钥："
-    read -r public_key
+    read -p "请输入要添加的公钥: " -r public_key
 
-    # 检查公钥是否为空
     if [[ -z "$public_key" ]]; then
         echo "错误: 公钥不能为空。" >&2
         return 1
     fi
 
-    # 确保 .ssh 目录存在并设置正确的权限
-    mkdir -p "${HOME}/.ssh" && chmod 700 "${HOME}/.ssh" || {
+    # 确保 .ssh 目录存在并拥有正确的权限 (700)
+    mkdir -p ~/.ssh && chmod 700 ~/.ssh || {
         echo "错误: 无法创建或设置 .ssh 目录权限。" >&2
         return 1
     }
 
-    # 如果 authorized_keys 文件不存在，创建它并设置正确的权限
-    [[ -f "$authorized_keys_file" ]] || {
-        touch "$authorized_keys_file" && chmod 600 "$authorized_keys_file" || {
-            echo "错误: 无法创建或设置 authorized_keys 文件权限。" >&2
-            return 1
-        }
+    # 如果 authorized_keys 文件不存在，创建它并设置正确的权限 (600)
+    touch "$authorized_keys_file" && chmod 600 "$authorized_keys_file" || {
+        echo "错误: 无法创建或设置 authorized_keys 文件权限。" >&2
+        return 1
     }
 
     # 检查公钥是否已存在
@@ -231,56 +355,63 @@ add_public_key() {
         return 0
     fi
 
-    # 备份 authorized_keys 文件
+    echo "正在备份 authorized_keys 文件..."
     cp -f "$authorized_keys_file" "$backup_file" || {
         echo "错误: 无法创建备份文件。" >&2
         return 1
     }
 
-    # 追加公钥到 authorized_keys 文件
-    if echo "$public_key" >>"$authorized_keys_file"; then
-        echo "成功: 公钥已添加。"
-    else
-        echo "错误: 无法添加公钥。" >&2
-        mv -f "$backup_file" "$authorized_keys_file"
-        return 1
-    fi
+    echo "正在添加公钥..."
+    # 将公钥追加到文件末尾
+    echo "$public_key" >>"$authorized_keys_file"
 
     # 验证公钥是否成功添加
-    if ! grep -qF -- "$public_key" "$authorized_keys_file"; then
-        echo "错误: 公钥添加失败，未在 authorized_keys 文件中找到。" >&2
+    if grep -qF -- "$public_key" "$authorized_keys_file"; then
+        echo "成功: 公钥已添加。"
+        rm -f "$backup_file"
+        return 0
+    else
+        echo "错误: 公钥添加失败，正在从备份恢复。" >&2
         mv -f "$backup_file" "$authorized_keys_file"
         return 1
     fi
-
-    # 删除备份文件
-    rm -f "$backup_file"
-
-    return 0
 }
 
-# 关闭SSH密码登录
+# 关闭 SSH 的密码登录功能，强制使用密钥登录，提高安全性
 disable_ssh_password_login() {
+    local sshd_config="/etc/ssh/sshd_config"
+    
+    if [ ! -f "$sshd_config" ]; then
+        echo "错误: sshd_config 文件不存在于 $sshd_config"
+        return 1
+    fi
+    
+    read -p "此操作将禁止密码登录，请确保您已设置公钥。是否继续？(y/n): " choice
+    if [[ "$choice" != "y" && "$choice" != "Y" ]]; then
+        echo "操作已取消。"
+        return 1
+    fi
+
     echo "正在关闭SSH密码登录..."
 
-    # 备份原始sshd_config文件
-    cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
+    # 备份原始 sshd_config 文件
+    cp "$sshd_config" "${sshd_config}.bak.$(date +%s)"
 
-    # 检查是否存在sshd_config文件
-    if [ -f /etc/ssh/sshd_config ]; then
-        chmod 600 ~/.ssh/authorized_keys
-        sed -i 's/#\?PasswordAuthentication\s\+yes/PasswordAuthentication no/g' /etc/ssh/sshd_config
-        systemctl restart sshd
-        if [ $? -eq 0 ]; then
-            echo "SSH密码登录已关闭。"
-        else
-            echo "SSH密码登录关闭失败。"
-            # 恢复备份的sshd_config文件
-            mv /etc/ssh/sshd_config.bak /etc/ssh/sshd_config
-            return 1
-        fi
+    # 使用 sed 修改配置
+    # s/^[#\s]*PasswordAuthentication\s\+.*/PasswordAuthentication no/g
+    # 这个正则表达式会匹配行首任意数量的#和空格，然后是 "PasswordAuthentication" 和任意空格，最后是任意字符
+    # 并将其替换为 "PasswordAuthentication no"
+    sed -i 's/^[#\s]*PasswordAuthentication\s\+.*/PasswordAuthentication no/g' "$sshd_config"
+    # 确保 ChallengeResponseAuthentication 也被禁用
+    sed -i 's/^[#\s]*ChallengeResponseAuthentication\s\+.*/ChallengeResponseAuthentication no/g' "$sshd_config"
+
+    # 重启 sshd 服务以应用更改
+    if systemctl restart sshd; then
+        echo "SSH密码登录已成功关闭。"
     else
-        echo "sshd_config 文件不存在"
+        echo "错误: SSH服务重启失败。请检查 'systemctl status sshd' 获取详情。"
+        echo "正在从备份恢复 sshd_config 文件..."
+        mv "${sshd_config}.bak.$(date +%s)" "$sshd_config"
         return 1
     fi
 }
@@ -288,7 +419,6 @@ disable_ssh_password_login() {
 # 添加docker工具脚本
 add_docker_tools() {
     echo "正在准备下载并执行 Docker 工具箱安装脚本..."
-    # 假设新脚本位于同一仓库路径下
     # YES_CN 变量由脚本开头的 set_mirror 函数设置
     local script_url="${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/add_docker_tools.sh"
     
@@ -381,420 +511,279 @@ cleanup_swap() {
     fi
 }
 
-# 设置虚拟内存
+# 设置虚拟内存 (swap 文件)
 set_virtual_memory() {
-    echo "正在检查当前 swap ..."
-    swap_files=$(swapon -s | awk '{if($1!~"^Filename"){print $1}}')
-
-    if [ -n "$swap_files" ]; then
-        echo "当前 swap 大小如下："
+    if swapon --show | grep -q '.'; then
+        echo "检测到已存在的 swap 设备："
         swapon --show
-        echo "是否要删除已存在的 swap ？"
-        read -p "请输入 y 或 n：" remove_choice
-
-        case $remove_choice in
-        y | Y)
-            # 调用函数以删除所有 swap 文件和分区
+        read -p "是否要先删除所有已存在的 swap？(y/n): " remove_choice
+        if [[ "$remove_choice" == "y" || "$remove_choice" == "Y" ]]; then
             remove_all_swap
-            ;;
-        n | N)
-            echo "保留已存在的 swap 。"
-            ;;
-        *)
-            echo "无效的选项，保留已存在的 swap 。"
-            ;;
-        esac
+        else
+            echo "操作因存在 swap 而取消。请先手动处理。"
+            return 1
+        fi
     fi
 
     echo "请选择虚拟内存的大小或手动输入值："
-    echo "1. 256M"
-    echo "2. 512M"
-    echo "3. 1GB"
-    echo "4. 2GB"
-    echo "5. 4GB"
-    echo "6. 手动输入值"
+    echo "1. 512M"
+    echo "2. 1GB"
+    echo "3. 2GB"
+    echo "4. 4GB"
+    echo "5. 手动输入值 (如 8G, 1024M)"
+    read -p "请输入选项数字 (按q退出)：" choice
 
-    read -p "请输入选项数字（按q退出）：" choice
-
+    local swap_size=""
     case $choice in
-    1)
-        swap_size="256M"
-        ;;
-    2)
-        swap_size="512M"
-        ;;
-    3)
-        swap_size="1G"
-        ;;
-    4)
-        swap_size="2G"
-        ;;
-    5)
-        swap_size="4G"
-        ;;
-    6)
-        read -p "请输入虚拟内存大小（例如：256M、1G、2G等）：" swap_size_input
-        swap_size="$swap_size_input"
-        ;;
-    q | Q)
-        echo "返回主菜单..."
-        return 1
-        ;;
-    *)
-        echo "无效的选项。"
-        return 1
-        ;;
+        1) swap_size="512M" ;;
+        2) swap_size="1G" ;;
+        3) swap_size="2G" ;;
+        4) swap_size="4G" ;;
+        5) read -p "请输入虚拟内存大小（例如：256M、1G、2G等）：" swap_size ;;
+        [qQ]) echo "返回主菜单..."; return 0 ;;
+        *) echo "无效的选项。"; return 1 ;;
     esac
 
-    echo "正在设置虚拟内存..."
-
-    # 检查是否已经存在交换文件
-    if [ -n "$swap_files" ]; then
-        echo "已经存在交换文件。删除现有的交换文件..."
-        # 调用函数以删除所有 swap 文件和分区
-        remove_all_swap
+    if [[ -z "$swap_size" ]]; then
+        echo "错误：Swap 大小不能为空。"
+        return 1
     fi
 
-    # 将单位转换为KB
-    case $swap_size in
-    *M)
-        swap_size_kb=$((${swap_size//[^0-9]/} * 1024)) # Convert MB to KB
-        ;;
-    *G)
-        swap_size_kb=$((${swap_size//[^0-9]/} * 1024 * 1024)) # Convert GB to KB
-        ;;
-    *)
-        echo "无效的虚拟内存大小单位。"
-        return 1
-        ;;
-    esac
+    local swap_file="/swapfile"
+    echo "正在创建大小为 ${swap_size} 的 swap 文件于 ${swap_file}..."
 
-    # 使用dd创建交换文件
-    dd if=/dev/zero of=/swap bs=1k count=$swap_size_kb
-
-    if [ $? -eq 0 ]; then
-        chmod 600 /swap
-        mkswap /swap
-        swapon /swap
-
-        if [ $? -eq 0 ]; then
-            echo "/swap swap swap defaults 0 0" >>/etc/fstab
-            echo "虚拟内存设置成功。"
-            echo "当前 swap 大小如下："
-            swapon -s | grep '/swap'
+    # 使用 fallocate 创建文件速度更快，如果失败则回退到 dd
+    fallocate -l "$swap_size" "$swap_file" || {
+        echo "fallocate 失败，回退到 dd..."
+        local count
+        local block_size
+        # 解析单位
+        if [[ $swap_size == *[Gg] ]]; then
+            count=$(echo "$swap_size" | sed 's/[Gg]//')
+            block_size="1G"
+        elif [[ $swap_size == *[Mm] ]]; then
+            count=$(echo "$swap_size" | sed 's/[Mm]//')
+            block_size="1M"
         else
-            echo "交换文件创建成功，但启用交换失败，请检查命令是否执行成功。"
+            echo "错误：无法识别的大小单位。"
             return 1
         fi
+        dd if=/dev/zero of="$swap_file" bs="$block_size" count="$count" status=progress
+    }
+
+    if [ $? -ne 0 ]; then
+        echo "错误：创建 swap 文件失败。"
+        rm -f "$swap_file"
+        return 1
+    fi
+
+    echo "设置 swap 文件权限..."
+    chmod 600 "$swap_file"
+    echo "格式化为 swap..."
+    mkswap "$swap_file"
+    echo "启用 swap..."
+    swapon "$swap_file"
+
+    if [ $? -eq 0 ]; then
+        # 检查是否已存在于 fstab
+        if ! grep -q "$swap_file" /etc/fstab; then
+            echo "将 swap 添加到 /etc/fstab 以实现开机自启..."
+            echo "$swap_file none swap sw 0 0" >> /etc/fstab
+        fi
+        echo "虚拟内存设置成功。"
+        swapon --show
     else
-        echo "创建交换文件失败，请检查命令是否执行成功。"
+        echo "错误：启用 swap 失败。"
+        rm -f "$swap_file"
         return 1
     fi
 }
 
-# 修改swap使用阈值
+
+# 修改 swap 使用阈值 (vm.swappiness)
 modify_swap_usage_threshold() {
+    local current_swappiness
+    current_swappiness=$(cat /proc/sys/vm/swappiness)
+    echo "当前系统的 vm.swappiness 值为：$current_swappiness"
+    echo "（值越低，系统越倾向于使用物理内存，推荐值为 10）"
 
-    echo "当前系统的vm.swappiness值：$(cat /proc/sys/vm/swappiness)"
+    read -p "请输入要设置的新 vm.swappiness 值 (0-100) [默认为 10]: " swap_value
+    # 如果用户直接回车，则使用默认值 10
+    swap_value=${swap_value:-10}
 
-    echo "正在修改swap使用阈值..."
-
-    read -p "请输入要设置的vm.swappiness值（0-100之间）：" swap_value
-
-    # 检查输入是否为数字且在0-100范围内
     if ! [[ "$swap_value" =~ ^[0-9]+$ ]] || [ "$swap_value" -lt 0 ] || [ "$swap_value" -gt 100 ]; then
         echo "无效的输入，请输入0-100之间的数字。"
         return 1
     fi
 
-    # 备份原始配置文件
-    cp /etc/sysctl.conf /etc/sysctl.conf.bak
+    echo "正在修改 swap 使用阈值为 $swap_value..."
 
-    # 检查是否存在vm.swappiness设置
+    # 直接在 /etc/sysctl.conf 中设置，没有就添加，有就修改
     if grep -q "^vm.swappiness" /etc/sysctl.conf; then
-        # 更新现有的vm.swappiness值
         sed -i "s/^vm.swappiness=.*/vm.swappiness=$swap_value/" /etc/sysctl.conf
     else
-        # 追加vm.swappiness值到/etc/sysctl.conf
-        echo "vm.swappiness=$swap_value" >>/etc/sysctl.conf
+        echo "vm.swappiness=$swap_value" >> /etc/sysctl.conf
     fi
 
-    # 重新加载系统设置
+    # 使配置立即生效
     sysctl -p
 
-    # 检查修改是否成功
-    if grep -q "^vm.swappiness=$swap_value" /etc/sysctl.conf; then
-        echo "swap使用阈值修改成功。"
-        echo "vm.swappiness值已设置为 $swap_value"
-    else
-        echo "swap使用阈值修改失败，请检查配置文件。"
-        # 恢复备份文件
-        mv /etc/sysctl.conf.bak /etc/sysctl.conf
-        return 1
-    fi
+    echo "swap 使用阈值修改成功。"
+    echo "新的 vm.swappiness 值为: $(cat /proc/sys/vm/swappiness)"
 }
+
+
+# --- 内核与网络优化模块 ---
 
 # 优化内核参数
 optimize_kernel_parameters() {
-    # 询问用户是否继续
-    read -p "您确定要优化内核参数吗？(y/n): " choice
-    case "$choice" in
-      [Yy]*)
-        echo "正在备份原始内核参数 /etc/sysctl.conf → /etc/sysctl.conf.bak"
-        cp /etc/sysctl.conf /etc/sysctl.conf.bak
-
-        # 1. 检测总内存
-        echo "检测系统总内存……"
-        mem_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
-        mem_mb=$((mem_kb/1024))
-        echo "  系统总内存: ${mem_mb} MB"
-
-        # 2. 手动/默认输入 RTT & 带宽
-        read -p "是否手动输入延迟(RTT ms)和带宽(Mbit/s)? [y/N]: " manual
-        if [[ $manual =~ ^[Yy] ]]; then
-          read -p "  请输入 你ping服务器的延迟(ms 只输入数字): " rtt
-          read -p "  请输入 你的宽带网速(Mbit/s 只输入数字): " bw
-        else
-          rtt=160
-          bw=400
-          echo "  使用默认 RTT=${rtt} ms, 带宽=${bw} Mbit/s"
-        fi
-        : ${rtt:=100}
-        : ${bw:=100}
-
-        # 3. 计算 BDP(字节)
-        #    bw_bytes = bw * 1024*1024 /8
-        #    BDP = bw_bytes * (rtt/1000)
-        bw_bytes=$(awk "BEGIN{printf \"%.0f\", $bw*1024*1024/8}")
-        bdp=$(awk "BEGIN{printf \"%.0f\", $bw_bytes*$rtt/1000}")
-        echo "  计算得到 BDP = ${bdp} 字节"
-
-        # 4. 根据内存分区决定基准 rmem_max/adv_scale
-        if [ "$mem_mb" -le 512 ]; then
-            case_rmem=$((16*1024*1024))   # 16MB
-            adv_case=-3
-        elif [ "$mem_mb" -le 1024 ]; then
-            case_rmem=$((32*1024*1024))   # 32MB
-            adv_case=-2
-        else
-            case_rmem=$((64*1024*1024))   # 64MB
-            adv_case=-1
-        fi
-
-        # 5. 综合 BDP 和 内存上限 (不超过总内存的一半) 来算最终的 rmem_max
-        target_rmem=$case_rmem
-        # 如果 BDP 要求更大，就用 BDP
-        if [ "$bdp" -gt "$target_rmem" ]; then
-            target_rmem=$bdp
-        fi
-        # 不超过总内存的一半
-        half_mem_bytes=$((mem_kb*1024/2))
-        if [ "$target_rmem" -gt "$half_mem_bytes" ]; then
-            target_rmem=$half_mem_bytes
-        fi
-        # 最低保证
-        if [ "$target_rmem" -lt 4096 ]; then
-            target_rmem=4096
-        fi
-
-
-        # 6. 动态选 adv_win_scale：若 BDP 超过基准，则放大窗口 (adv=0)，否则用分区给定值
-        if [ "$bdp" -gt "$case_rmem" ]; then
-            adv_scale=0
-        else
-            adv_scale=$adv_case
-        fi
-
-        # 7. 构造待写入的参数列表
-        parameters=(
-          "net.core.default_qdisc = fq_pie"
-          "net.ipv4.tcp_congestion_control = bbr"
-          "net.core.rmem_max = $target_rmem"
-          "net.core.wmem_max = $target_rmem"
-          "net.ipv4.tcp_rmem = 4096 87380 $target_rmem"
-          "net.ipv4.tcp_wmem = 4096 16384 $target_rmem"
-          "net.ipv4.tcp_window_scaling = 1"
-          "net.ipv4.tcp_adv_win_scale = $adv_scale"
-          "net.ipv4.tcp_low_latency = 1"
-          "net.ipv4.tcp_notsent_lowat = 131072"
-          "net.ipv4.tcp_slow_start_after_idle = 0"
-          "net.ipv4.tcp_sack = 1"
-          "net.ipv4.tcp_timestamps = 1"
-          "net.ipv4.ip_forward = 1"
-          "vm.overcommit_memory = 1"
-          "fs.inotify.max_user_watches = 524288"
-        )
-
-        # 8. 注释掉老的 tcp_fastopen (如果存在)
-        sed -i 's/^[[:space:]]*net\.ipv4\.tcp_fastopen/#&/' /etc/sysctl.conf
-
-        # 9. 写入或更新 sysctl.conf
-        for p in "${parameters[@]}"; do
-          key="${p%% =*}"
-          if grep -qE "^\s*${key}\b" /etc/sysctl.conf; then
-            # 已有，替换整行
-            sed -i "s|^\s*${key}.*|${p}|" /etc/sysctl.conf
-          else
-            # 没有，追加到末尾
-            echo "${p}" >> /etc/sysctl.conf
-          fi
-        done
-
-        # 10. 重新加载生效
-        sysctl -p
-
-        echo "====== 内核参数优化完成 ======"
-        ;;
-
-      [Nn]*)
-        echo "内核参数优化已取消。"
-        ;;
-
-      *)
-        echo "无效输入，退出。"
-        return 1
-        ;;
-    esac
-}
-
-# 安装XanMod内核
-install_xanmod_kernel() {
-    echo "当前内核版本：$(uname -r)"
-
-    # 检查 CPU 支持的指令集级别
-    cpu_support_info=$(/usr/bin/awk -f <(wget -qO - "${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/check_x86-64_psabi.sh"))
-    if [[ $cpu_support_info == "CPU supports x86-64-v"* ]]; then
-        cpu_support_level=${cpu_support_info#CPU supports x86-64-v}
-        echo "你的CPU支持XanMod内核，级别为 x86-64-v$cpu_support_level"
-    else
-        echo "你的CPU不受XanMod内核支持，无法安装。"
-        return 1
+    read -p "此操作将修改网络相关内核参数以启用 BBR 并进行优化，是否继续？(y/n): " choice
+    if [[ "$choice" != "y" && "$choice" != "Y" ]]; then
+        echo "操作已取消。"
+        return 0
     fi
 
-    read -p "是否继续下载并安装XanMod内核？ (y/n): " continue_choice
+    echo "正在备份原始内核参数 /etc/sysctl.conf → /etc/sysctl.conf.bak"
+    cp /etc/sysctl.conf /etc/sysctl.conf.bak
 
-    case $continue_choice in
-    y | Y)
-        echo "正在从GitHub下载XanMod内核..."
-        echo "XanMod内核官网 https://xanmod.org"
-        echo "内核来自 https://sourceforge.net/projects/xanmod/files/releases/lts/"
+    # 1. 检测内存
+    echo "检测系统内存……"
+    mem_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+    mem_mb=$((mem_kb/1024))
+    echo "  系统总内存: ${mem_mb} MB"
 
-        # 创建临时文件夹
-        temp_folder=$(mktemp -d)
-        cd $temp_folder
+    # 2. 手动/默认输入 RTT & 带宽
+    read -p "是否手动输入延迟(RTT ms)和带宽(Mbit/s)? [y/N]: " manual
+    if [[ $manual =~ ^[Yy] ]]; then
+        read -p "  请输入 你ping服务器的延迟(ms 只输入数字): " rtt
+        read -p "  请输入 你的宽带网速(Mbit/s 只输入数字): " bw
+    else
+        rtt=160
+        bw=400
+        echo "  使用默认 RTT=${rtt} ms, 带宽=${bw} Mbit/s"
+    fi
+    : ${rtt:=100}
+    : ${bw:=100}
 
-        # 根据CPU支持级别选择下载的内核
-        case $cpu_support_level in
-        2)
-            headers_file="linux-headers-6.1.46-x64v2-xanmod1_6.1.46-x64v2-xanmod1-0.20230816.g11dcd23_amd64.deb"
-            image_file="linux-image-6.1.46-x64v2-xanmod1_6.1.46-x64v2-xanmod1-0.20230816.g11dcd23_amd64.deb"
-            headers_md5="45c85d1bcb07bf171006a3e34b804db0"
-            image_md5="63c359cef963a2e9f1b7181829521fc3"
-            ;;
-        3)
-            headers_file="linux-headers-6.1.46-x64v3-xanmod1_6.1.46-x64v3-xanmod1-0.20230816.g11dcd23_amd64.deb"
-            image_file="linux-image-6.1.46-x64v3-xanmod1_6.1.46-x64v3-xanmod1-0.20230816.g11dcd23_amd64.deb"
-            headers_md5="6ae3e253a8aeabd80458df4cb4da70cf"
-            image_md5="d6ea43a2a6686b86e0ac23f800eb95a4"
-            ;;
-        4)
-            headers_file="linux-headers-6.1.46-x64v4-xanmod1_6.1.46-x64v4-xanmod1-0.20230816.g11dcd23_amd64.deb"
-            image_file="linux-image-6.1.46-x64v4-xanmod1_6.1.46-x64v4-xanmod1-0.20230816.g11dcd23_amd64.deb"
-            headers_md5="9c41a4090a8068333b7dd56b87dd01df"
-            image_md5="7d30eef4b9094522fc067dc19f7cc92e"
-            ;;
-        *)
-            echo "你的CPU不受XanMod内核支持，无法安装。"
-            return 1
-            ;;
-        esac
+    # 3. 计算 BDP(字节)
+    #    bw_bytes = bw * 1024*1024 /8
+    #    BDP = bw_bytes * (rtt/1000)
+    bw_bytes=$(awk "BEGIN{printf \"%.0f\", $bw*1024*1024/8}")
+    bdp=$(awk "BEGIN{printf \"%.0f\", $bw_bytes*$rtt/1000}")
+    echo "  计算得到 BDP = ${bdp} 字节"
 
-        # 下载内核文件
-        wget "${YES_CN}https://github.com/SuperNG6/linux-setup.sh/releases/download/0816/$headers_file"
-        wget "${YES_CN}https://github.com/SuperNG6/linux-setup.sh/releases/download/0816/$image_file"
+    # 4. 根据内存分区决定基准 rmem_max/adv_scale
+    if [ "$mem_mb" -le 512 ]; then
+        case_rmem=$((16*1024*1024))   # 16MB
+        adv_case=-3
+    elif [ "$mem_mb" -le 1024 ]; then
+        case_rmem=$((32*1024*1024))   # 32MB
+        adv_case=-2
+    else
+        case_rmem=$((64*1024*1024))   # 64MB
+        adv_case=-1
+    fi
 
-        # 校验 MD5 值
-        if [ "$(md5sum $headers_file | awk '{print $1}')" != "$headers_md5" ]; then
-            echo "下载的 $headers_file MD5 值不匹配，可能文件已被篡改。"
-            return 1
-        fi
+    # 5. 综合 BDP 和 内存上限 (不超过总内存的一半) 来算最终的 rmem_max
+    target_rmem=$case_rmem
+    # 如果 BDP 要求更大，就用 BDP
+    if [ "$bdp" -gt "$target_rmem" ]; then
+        target_rmem=$bdp
+    fi
+    # 不超过总内存的一半
+    half_mem_bytes=$((mem_kb*1024/2))
+    if [ "$target_rmem" -gt "$half_mem_bytes" ]; then
+        target_rmem=$half_mem_bytes
+    fi
+    # 最低保证
+    if [ "$target_rmem" -lt 4096 ]; then
+        target_rmem=4096
+    fi
 
-        if [ "$(md5sum $image_file | awk '{print $1}')" != "$image_md5" ]; then
-            echo "下载的 $image_file MD5 值不匹配，可能文件已被篡改。"
-            return 1
-        fi
+    # 6. 动态选 adv_win_scale：若 BDP 超过基准，则放大窗口 (adv=0)，否则用分区给定值
+    if [ "$bdp" -gt "$case_rmem" ]; then
+        adv_scale=0
+    else
+        adv_scale=$adv_case
+    fi
 
-        # 安装内核
-        dpkg -i linux-image-*xanmod*.deb linux-headers-*xanmod*.deb
+    # 7. 构造待写入的参数列表
+    parameters=(
+        "net.core.default_qdisc = fq_pie"
+        "net.ipv4.tcp_congestion_control = bbr"
+        "net.core.rmem_max = $target_rmem"
+        "net.core.wmem_max = $target_rmem"
+        "net.ipv4.tcp_rmem = 4096 87380 $target_rmem"
+        "net.ipv4.tcp_wmem = 4096 16384 $target_rmem"
+        "net.ipv4.tcp_window_scaling = 1"
+        "net.ipv4.tcp_adv_win_scale = $adv_scale"
+        "net.ipv4.tcp_low_latency = 1"
+        "net.ipv4.tcp_notsent_lowat = 131072"
+        "net.ipv4.tcp_slow_start_after_idle = 0"
+        "net.ipv4.tcp_sack = 1"
+        "net.ipv4.tcp_timestamps = 1"
+        "net.ipv4.ip_forward = 1"
+        "vm.overcommit_memory = 1"
+        "fs.inotify.max_user_watches = 524288"
+    )
 
-        # 检查安装是否成功
-        if [ $? -eq 0 ]; then
-            echo "XanMod内核安装成功。"
-            read -p "是否需要更新grub引导配置？ (y/n): " update_grub_choice
+    # 8. 注释掉老的 tcp_fastopen (如果存在)
+    sed -i 's/^[[:space:]]*net\.ipv4\.tcp_fastopen/#&/' /etc/sysctl.conf
 
-            case $update_grub_choice in
-            y | Y)
-                update-grub
-                echo "Grub引导配置已更新，重启后生效。"
-                echo "若需要开启BBRv3，请重启后执行脚本-内核优化选项"
-                ;;
-            n | N)
-                echo "跳过Grub引导配置更新。"
-                ;;
-            *)
-                echo "无效的选项，跳过Grub引导配置更新。"
-                ;;
-            esac
+    # 9. 写入或更新 sysctl.conf
+    for p in "${parameters[@]}"; do
+        key="${p%% =*}"
+        if grep -qE "^\s*${key}\b" /etc/sysctl.conf; then
+        # 已有，替换整行
+        sed -i "s|^\s*${key}.*|${p}|" /etc/sysctl.conf
         else
-            echo "XanMod内核安装失败。"
+        # 没有，追加到末尾
+        echo "${p}" >> /etc/sysctl.conf
         fi
+    done
 
-        # 清理下载的deb文件
-        rm -f linux-image-*xanmod*.deb linux-headers-*xanmod*.deb
-        ;;
-    n | N)
-        echo "取消下载和安装XanMod内核。"
-        ;;
-    *)
-        echo "无效的选项，取消下载和安装XanMod内核。"
-        ;;
-    esac
+    # 10. 重新加载生效
+    echo "应用内核参数..."
+    sysctl -p
+
+    echo "====== 内核参数优化完成 ======"
+}
+
+# 安装 XanMod 内核 (仅限 Debian/Ubuntu)
+install_xanmod_kernel() {
+    # YES_CN 变量由脚本开头的 set_mirror 函数设置并导出
+    local script_url="${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/manage_xanmod_kernel.sh"
+    
+    # 下载并通过管道传递给bash执行, 传递 'install' 参数
+    if bash <(wget -qO - "$script_url") install; then
+        echo "XanMod 内核安装脚本执行完成。"
+    else
+        echo "错误：XanMod 内核安装脚本下载或执行失败。"
+        return 1
+    fi
 }
 
 # 卸载XanMod内核并恢复原有内核，并更新Grub引导配置
 uninstall_xanmod_kernel() {
-    echo "正在检查当前内核...$(uname -r)"
-
-    # 获取当前内核的版本号
-    current_kernel_version=$(uname -r)
-
-    # 检查是否为XanMod内核
-    if [[ $current_kernel_version == *-xanmod* ]]; then
-        echo "当前内核为 XanMod 内核：$current_kernel_version"
-
-        # 显示卸载提示
-        read -p "确定要卸载XanMod内核并恢复原有内核吗？(y/n): " confirm
-        if [[ $confirm == [yY] ]]; then
-            echo "正在卸载XanMod内核并恢复原有内核..."
-
-            # 卸载XanMod内核
-            apt-get purge linux-image-*xanmod* linux-headers-*xanmod* -y
-            apt-get autoremove -y
-
-            # 更新Grub引导配置
-            update-grub
-
-            echo "XanMod内核已卸载并恢复原有内核。Grub引导配置已更新，重启后生效。"
-        else
-            echo "取消卸载操作。"
-        fi
+    # YES_CN 变量由脚本开头的 set_mirror 函数设置并导出
+    local script_url="${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/manage_xanmod_kernel.sh"
+    
+    # 下载并通过管道传递给bash执行, 传递 'uninstall' 参数
+    if bash <(wget -qO - "$script_url") uninstall; then
+        echo "XanMod 内核卸载脚本执行完成。"
     else
-        echo "当前内核不是XanMod内核，无法执行卸载操作。"
+        echo "错误：XanMod 内核卸载脚本下载或执行失败。"
+        return 1
     fi
 }
 
-# 安装 Debian Cloud 内核
+# 安装 Debian Cloud 内核 (仅限 Debian)
 install_debian_cloud_kernel() {
+    if [[ ! "$OS_TYPE" == "Debian/Ubuntu" || ! $(grep -i "debian" /etc/os-release) ]]; then
+        echo "错误：此功能仅适用于 Debian 系统。"
+        return 1
+    fi
+
     echo "INFO" "开始安装 Debian Cloud 内核"
     echo "正在更新软件包列表..."
     apt update -y
@@ -807,7 +796,7 @@ install_debian_cloud_kernel() {
     latest_cloud_headers=${latest_cloud_kernel/image/headers}
 
     if [ -z "$latest_cloud_kernel" ]; then
-        log "ERROR" "未找到可用的 Cloud 内核版本"
+        echo "ERROR" "未找到可用的 Cloud 内核版本"
         echo "未找到可用的 Cloud 内核版本。"
         return 1
     fi
@@ -821,10 +810,10 @@ install_debian_cloud_kernel() {
         if [ $? -eq 0 ]; then
             echo "更新 GRUB..."
             update-grub
-            log "INFO" "Debian  Cloud 内核安装成功"
+            echo "INFO" "Debian  Cloud 内核安装成功"
             echo "Debian  Cloud 内核安装成功。请重启系统以使用新内核。"
         else
-            log "ERROR" "Debian  Cloud 内核安装失败"
+            echo "ERROR" "Debian  Cloud 内核安装失败"
             echo "Debian  Cloud 内核安装失败。"
         fi
     else
@@ -859,177 +848,125 @@ uninstall_debian_cloud_kernel() {
         if [ $? -eq 0 ]; then
             echo "更新 GRUB..."
             update-grub
-            log "INFO" "Debian Cloud 内核卸载成功"
+            echo "INFO" "Debian Cloud 内核卸载成功"
             echo "Debian Cloud 内核卸载成功。请重启系统以使用原有内核。"
         else
-            log "ERROR" "Debian Cloud 内核卸载失败"
+            echo "ERROR" "Debian Cloud 内核卸载失败"
             echo "Debian Cloud 内核卸载失败。"
         fi
     else
         echo "取消卸载 Cloud 内核。"
     fi
 }
-
 # 修改SSH端口号
 modify_ssh_port() {
-    current_port=$(grep -oP '^Port \K\d+' /etc/ssh/sshd_config)
-
+    local sshd_config="/etc/ssh/sshd_config"
+    local current_port
+    current_port=$(grep -i "^\s*port" "$sshd_config" | awk '{print $2}' | tail -n 1)
+    
     if [ -z "$current_port" ]; then
-        echo "当前SSH端口号未设置（被注释），请输入要设置的新SSH端口号："
+        current_port=22 # 默认端口
+    fi
+    echo "当前SSH端口号是：$current_port"
+    
+    read -p "请输入新的SSH端口号: " new_port
+
+    if ! [[ "$new_port" =~ ^[0-9]+$ ]] || [ "$new_port" -lt 1 ] || [ "$new_port" -gt 65535 ]; then
+        echo "无效的端口号。"
+        return 1
+    fi
+
+    echo "正在修改 SSH 端口为 $new_port..."
+    # 备份配置文件
+    cp "$sshd_config" "${sshd_config}.bak.$(date +%s)"
+    # 修改或添加 Port 配置
+    if grep -q "^\s*Port" "$sshd_config"; then
+        sed -i "s/^\s*Port.*/Port $new_port/" "$sshd_config"
     else
-        echo "当前SSH端口号：$current_port，请输入新的SSH端口号："
+        echo "Port $new_port" >> "$sshd_config"
     fi
 
-    read -p "新SSH端口号：" new_port
+    # # 开放新端口
+    # firewall_open_port "$new_port" "tcp"
+    # if [ $? -ne 0 ]; then
+    #     echo "错误：在防火墙中开放新端口失败，操作已回滚。"
+    #     mv "${sshd_config}.bak.$(date +%s)" "$sshd_config"
+    #     return 1
+    # fi
 
-    if ! [[ "$new_port" =~ ^[0-9]+$ ]]; then
-        echo "无效的输入，请输入有效的端口号。"
-        return 1 # 返回非零退出状态码表示错误
-    fi
-
-    if [ -z "$current_port" ]; then
-        # 添加新的端口号配置
-        sed -i "/^#Port/a Port $new_port" /etc/ssh/sshd_config
+    # 重启 SSH 服务
+    if systemctl restart sshd; then
+        echo "SSH 端口修改成功，新端口为 $new_port。"
+        echo "请记得使用新端口重新连接！"
+        # # 如果旧端口不是22，则可以选择关闭
+        # if [ "$current_port" != "22" ] && [ "$current_port" != "$new_port" ]; then
+        #     read -p "是否要关闭旧的SSH端口 $current_port？(y/n): " close_old
+        #     if [[ "$close_old" == "y" || "$close_old" == "Y" ]]; then
+        #         firewall_close_port "$current_port" "tcp"
+        #     fi
+        # fi
     else
-        # 更新现有的端口号配置
-        sed -i "s/^Port .*/Port $new_port/" /etc/ssh/sshd_config
+        echo "错误：SSH 服务重启失败。操作已回滚。"
+        mv "${sshd_config}.bak.$(date +%s)" "$sshd_config"
+        # firewall_close_port "$new_port" "tcp" # 回滚防火墙规则
+        return 1
     fi
-    chmod 644 /etc/ssh/sshd_config
-    systemctl restart sshd
-
-    echo "SSH端口号已修改为：$new_port"
-
-    # 开放新端口号根据不同的防火墙
-    firewall=$(check_firewall)
-    case $firewall in
-    "ufw")
-        ufw allow $new_port/tcp
-        echo "开放防火墙SSH端口 $new_port"
-        ;;
-    "firewalld")
-        firewall-cmd --add-port=$new_port/tcp --permanent
-        firewall-cmd --reload
-        echo "开放防火墙SSH端口 $new_port"
-        ;;
-    "iptables")
-        iptables -A INPUT -p tcp --dport $new_port -j ACCEPT
-        service iptables save
-        service iptables restart
-        echo "开放防火墙SSH端口 $new_port"
-        ;;
-    "nftables")
-        nft add rule ip filter input tcp dport $new_port accept
-        echo "开放防火墙SSH端口 $new_port"
-        ;;
-    *)
-        echo "不支持的防火墙或找不到防火墙。"
-        ;;
-    esac
 }
 
-# 设置防火墙端口
+# 设置防火墙端口（用户交互界面）
 set_firewall_ports() {
-    firewall=$(check_firewall)
-
-    case $firewall in
-    "ufw")
-        firewall_cmd="ufw"
-        ;;
-    "firewalld")
-        firewall_cmd="firewall-cmd"
-        ;;
-    "iptables")
-        firewall_cmd="iptables-legacy"
-        ;;
-    "nftables")
-        firewall_cmd="nft"
-        ;;
-    *)
-        echo "找不到支持的防火墙。"
-        return 1
-        ;;
-    esac
-
-    echo "当前系统安装的防火墙为：$(check_firewall)"
-    echo "=========================================="
+    clear
     display_open_ports
-    echo -e "============================================="
+    
     echo "请选择要执行的操作:"
-    echo -e "============================================="
     echo "1. 开放防火墙端口"
     echo "2. 关闭防火墙端口"
     echo "q. 返回主菜单"
-    read -p "请输入操作选项 (1/2): " action
+    read -p "请输入操作选项 (1/2/q): " action
 
     case $action in
     1)
-        echo -e "============================================="
-        echo -e "','逗号为分隔符，支持一次输入多个tcp，udp端口"
-        echo -e "============================================="
-        read -p "请输入要开放的新防火墙端口，如80t,443t,53u（t代表TCP，u代表UDP）：" new_ports_input
+        echo "支持一次输入多个端口，以逗号分隔。"
+        read -p "请输入要开放的端口，格式如 80t,443t,53u (t=TCP, u=UDP): " ports_input
 
-        # 设置 IFS（内部字段分隔符）为逗号，将输入字符串按逗号分割成数组
-        IFS=',' read -ra new_ports <<<"$new_ports_input"
-
-        for port_input in "${new_ports[@]}"; do
-            if [[ ! "$port_input" =~ ^[0-9]+[tu]$ ]]; then
-                echo "无效的输入，请按照格式输入端口号和协议缩写（例如：80t 或 443u）。"
-                return 1
+        IFS=',' read -ra ports_array <<<"$ports_input"
+        for port_info in "${ports_array[@]}"; do
+            port_info=$(echo "$port_info" | xargs) # 去除空格
+            if [[ "$port_info" =~ ^([0-9]+)([tu])$ ]]; then
+                local port="${BASH_REMATCH[1]}"
+                local proto_char="${BASH_REMATCH[2]}"
+                local protocol="tcp"
+                if [ "$proto_char" == "u" ]; then
+                    protocol="udp"
+                fi
+                firewall_open_port "$port" "$protocol"
+            else
+                echo "警告：无效的输入格式 '$port_info'，已跳过。"
             fi
-
-            port="${port_input%[tu]}"
-            case "${port_input: -1}" in
-            t)
-                protocol="tcp"
-                ;;
-            u)
-                protocol="udp"
-                ;;
-            *)
-                echo "无效的协议缩写。"
-                return 1
-                ;;
-            esac
-
-            $firewall_cmd allow $port/$protocol
-            echo "开放 $protocol 端口 $port 成功。"
         done
         ;;
     2)
-        echo -e "============================================="
-        echo -e "','逗号为分隔符，支持一次输入多个tcp，udp端口"
-        echo -e "============================================="
-        read -p "请输入要关闭的防火墙端口，如80t,53u（t代表TCP，u代表UDP）：" ports_to_close_input
+        echo "支持一次输入多个端口，以逗号分隔。"
+        read -p "请输入要关闭的端口，格式如 80t,53u (t=TCP, u=UDP): " ports_input
 
-        # 设置 IFS（内部字段分隔符）为逗号，将输入字符串按逗号分割成数组
-        IFS=',' read -ra ports_to_close <<<"$ports_to_close_input"
-
-        for port_input in "${ports_to_close[@]}"; do
-            if [[ ! "$port_input" =~ ^[0-9]+[tu]$ ]]; then
-                echo "无效的输入，请按照格式输入端口号和协议缩写（例如：80t 或 443u）。"
-                return 1
+        IFS=',' read -ra ports_array <<<"$ports_input"
+        for port_info in "${ports_array[@]}"; do
+            port_info=$(echo "$port_info" | xargs) # 去除空格
+            if [[ "$port_info" =~ ^([0-9]+)([tu])$ ]]; then
+                local port="${BASH_REMATCH[1]}"
+                local proto_char="${BASH_REMATCH[2]}"
+                local protocol="tcp"
+                if [ "$proto_char" == "u" ]; then
+                    protocol="udp"
+                fi
+                firewall_close_port "$port" "$protocol"
+            else
+                echo "警告：无效的输入格式 '$port_info'，已跳过。"
             fi
-
-            port="${port_input%[tu]}"
-            case "${port_input: -1}" in
-            t)
-                protocol="tcp"
-                ;;
-            u)
-                protocol="udp"
-                ;;
-            *)
-                echo "无效的协议缩写。"
-                return 1
-                ;;
-            esac
-
-            $firewall_cmd deny $port/$protocol
-            echo "关闭 $protocol 端口 $port 成功。"
         done
         ;;
-    q | Q)
-        return 1
+    [qQ])
+        return 0
         ;;
     *)
         echo "无效的操作选项。"
@@ -1049,8 +986,8 @@ is_zram_installed() {
 
 # 安装ZRAM
 install_zram() {
-    os_type=$(get_os_info)
-    case $os_type in
+    OS_TYPE=$(get_os_info)
+    case $OS_TYPE in
     Debian/Ubuntu)
         apt update && apt install -y zram-tools
         ;;
@@ -1061,7 +998,7 @@ install_zram() {
         pacman -Sy --noconfirm zram-generator
         ;;
     *)
-        echo "不支持的操作系统: $os_type"
+        echo "不支持的操作系统: $OS_TYPE"
         return 1
         ;;
     esac
@@ -1073,8 +1010,8 @@ display_zram_status() {
         echo "当前 ZRAM 配置:"
         zramctl
 
-        os_type=$(get_os_info)
-        case $os_type in
+        OS_TYPE=$(get_os_info)
+        case $OS_TYPE in
         Debian/Ubuntu)
             echo "当前配置参数:"
             grep -E "PERCENT|ALGO|DEVICES" /etc/default/zramswap
@@ -1101,8 +1038,7 @@ configure_zram() {
     fi
 
     # 获取当前设置
-    os_type=$(get_os_info)
-    case $os_type in
+    case $OS_TYPE in
     Debian/Ubuntu)
         current_percent=$(grep -oP 'PERCENT=\K\d+' /etc/default/zramswap)
         current_algo=$(grep -oP 'ALGO=\K\w+' /etc/default/zramswap)
@@ -1145,7 +1081,7 @@ configure_zram() {
     esac
 
     # 配置ZRAM
-    case $os_type in
+    case $OS_TYPE in
     Debian/Ubuntu)
         echo "PERCENT=$zram_percent" >/etc/default/zramswap
         echo "ALGO=$comp_algo" >>/etc/default/zramswap
@@ -1173,8 +1109,7 @@ EOF
 uninstall_zram() {
     if is_zram_installed; then
         echo "正在卸载ZRAM..."
-        os_type=$(get_os_info)
-        case $os_type in
+        case $OS_TYPE in
         Debian/Ubuntu)
             systemctl stop zramswap
             systemctl disable zramswap
@@ -1191,7 +1126,7 @@ uninstall_zram() {
             pacman -R --noconfirm zram-generator
             ;;
         *)
-            echo "不支持的操作系统: $os_type"
+            echo "不支持的操作系统: $OS_TYPE"
             return 1
             ;;
         esac
@@ -1250,8 +1185,7 @@ set_dns_dhclient() {
     echo "正在准备通过dhclient设置CF、Google DNS..."
     
     # 检查是否为 Debian/Ubuntu，因为此方法特定于 dhclient
-    os_type=$(get_os_info)
-    if [[ "$os_type" != "Debian/Ubuntu" ]]; then
+    if [[ "$OS_TYPE" != "Debian/Ubuntu" ]]; then
         echo "错误：此功能目前仅适用于使用 dhclient 的 Debian/Ubuntu 系统。"
         echo "操作已取消。"
         return 1
@@ -1269,106 +1203,118 @@ set_dns_dhclient() {
 }
 
 
-# 显示操作菜单选项
+# --- 主菜单与主循环 ---
+
+# 显示操作菜单
 display_menu() {
-    # 获取当前Linux发行版本（包括版本号）
+    local linux_version
     linux_version=$(awk -F= '/^PRETTY_NAME=/{gsub(/"/, "", $2); print $2}' /etc/os-release)
-    # 获取当前内核版本
+    local kernel_version
     kernel_version=$(uname -r)
-    # 获取当前内存使用率（以百分比形式）
+    local memory_usage
     memory_usage=$(free | awk '/Mem/{printf("%.2f", $3/$2 * 100)}')
 
-    # 设置颜色和样式
-    GREEN='\033[0;32m'
-    BOLD='\033[1m'
-    RESET='\033[0m'
+    local GREEN='\033[0;32m'
+    local BOLD='\033[1m'
+    local RESET='\033[0m'
 
     clear
-    echo -e "${BOLD}欢迎使用 SuperNG6 的 Linux 配置工具${RESET}"
+    echo -e "${BOLD}欢迎使用 SuperNG6 的 Linux 工具箱${RESET}"
     echo -e "${BOLD}GitHub：https://github.com/SuperNG6/linux-setup.sh${RESET}"
-    # 在一行上显示当前CPU使用率、内存使用率、Linux发行版本和内核版本，并使用预定义的颜色和样式
-    echo -e "${BOLD}-----------------------------------"
-    echo -e "当前Linux发行版本：${GREEN}${BOLD}${linux_version}${RESET}"
-    echo -e "当前内核版本：${GREEN}${BOLD}${kernel_version}${RESET}"
-    echo -e "当前内存使用率：${GREEN}${BOLD}${memory_usage}%${RESET}"
-    # 菜单选项
-    echo -e "${BOLD}-----------------------------------"
-    echo -e "请选择以下选项：\n"
+    echo -e "-----------------------------------------------------"
+    echo -e "系统: ${GREEN}${linux_version}${RESET}"
+    echo -e "内核: ${GREEN}${kernel_version}${RESET}"
+    echo -e "内存: ${GREEN}${memory_usage}%${RESET} | 防火墙: ${GREEN}${FIREWALL_TYPE}${RESET}"
+    echo -e "-----------------------------------------------------"
+    echo -e "${BOLD}请选择操作：${RESET}\n"
     echo -e "${BOLD}选项${RESET}     ${BOLD}描述${RESET}"
-    echo "-----------------------------------"
-    echo -e "${GREEN} 1${RESET}       安装必要组件"
-    echo -e "${GREEN} 2${RESET}       添加要登记设备的公钥"
-    echo -e "${GREEN} 3${RESET}       关闭 SSH 密码登录"
+    # 菜单选项
+    echo -e "----------- ${BOLD}基础与安全${RESET} ---------------------------"
+    echo -e "${GREEN} 1${RESET}       安装常用组件 (Docker, Fail2ban...)"
+    echo -e "${GREEN} 2${RESET}       添加 SSH 公钥 (免密登录)"
+    echo -e "${GREEN} 3${RESET}       关闭 SSH 密码登录 (推荐)"
     echo -e "${GREEN} 4${RESET}       修改 SSH 端口号"
-    echo -e "${GREEN} 5${RESET}       添加 Docker 工具脚本"
-    echo -e "${GREEN} 6${RESET}       设置 Swap 大小"
-    echo -e "${GREEN} 7${RESET}       修改 Swap 使用阈值"
-    echo -e "${GREEN} 8${RESET}       清理 Swap 缓存"
-    echo -e "${GREEN} 9${RESET}       优化内核参数"
-
-    os_type=$(get_os_info)
-    case $os_type in
-    "Debian/Ubuntu")
-        echo -e "${GREEN} 10${RESET}      下载并安装 XanMod 内核 (BBRv3)"
-        echo -e "${GREEN} 11${RESET}      卸载 XanMod 内核，并恢复原有内核"
-        if [[ $os_type == "Debian"* ]]; then
-            echo -e "${GREEN} 12${RESET}      安装 Debian Cloud 内核"
-            echo -e "${GREEN} 13${RESET}      卸载 Debian Cloud 内核，并恢复原有内核"
+    echo -e "${GREEN} 5${RESET}       设置防火墙端口 (开放/关闭)"
+    echo ""
+    echo -e "----------- ${BOLD}性能与优化${RESET} ----------------------------"
+    echo -e "${GREEN} 6${RESET}       设置 Swap 虚拟内存"
+    echo -e "${GREEN} 7${RESET}       配置 ZRAM"
+    echo -e "${GREEN} 8${RESET}       修改 Swap 使用阈值 (Swappiness)"
+    echo -e "${GREEN} 9${RESET}       清理 Swap 缓存"
+    echo -e "${GREEN} 10${RESET}      优化内核参数"
+    echo -e "${GREEN} 11${RESET}      添加 Docker 工具脚本"
+    echo -e "${GREEN} 12${RESET}      设置公共 DNS (CF/Google)"
+    echo ""
+    if [[ "$OS_TYPE" == "Debian/Ubuntu" ]]; then
+        echo -e "----------- ${BOLD}内核管理 (Debian/Ubuntu)${RESET} -------------"
+        echo -e "${GREEN} 13${RESET}      安装 XanMod 内核 (含BBRv3)"
+        echo -e "${GREEN} 14${RESET}      卸载 XanMod 内核"
+        if [[ $(grep -i "debian" /etc/os-release) ]]; then
+            echo -e "${GREEN} 15${RESET}      安装 Debian Cloud 内核"
+            echo -e "${GREEN} 16${RESET}      卸载 Debian Cloud 内核"
         fi
-        ;;
-    esac
+    fi
 
-    echo -e "${GREEN} 14${RESET}      设置防火墙端口"
-    echo -e "${GREEN} 15${RESET}      配置 ZRAM"
-    echo -e "${GREEN} 16${RESET}      设置 CF、谷歌 DNS(DHCP)"
-    echo "-----------------------------------"
+    echo -e "----------------------------------------------------------"
     echo -e "${BOLD}输入${RESET} 'q' ${BOLD}退出${RESET}"
 }
 
 # 根据用户选择执行相应的操作
+# 处理用户选择
 handle_choice() {
+    local choice=$1
     clear
-    case $1 in
-    1) install_components ;;
-    2) add_public_key ;;
-    3) disable_ssh_password_login ;;
-    4) modify_ssh_port ;;
-    5) add_docker_tools ;;
-    6) set_virtual_memory ;;
-    7) modify_swap_usage_threshold ;;
-    8) cleanup_swap ;;
-    9) optimize_kernel_parameters ;;
-    10) install_xanmod_kernel ;;
-    11) uninstall_xanmod_kernel ;;
-    12) install_debian_cloud_kernel ;;
-    13) uninstall_debian_cloud_kernel ;;
-    14) set_firewall_ports ;;
-    15) configure_zram_menu ;;
-    16) set_dns_dhclient ;;
-    q | Q) return 1 ;; # 返回非零值来退出循环
-    *) echo "无效的选项，请输入合法的选项数字。" ;;
+    case $choice in
+        1) install_components ;;
+        2) add_public_key ;;
+        3) disable_ssh_password_login ;;
+        4) modify_ssh_port ;;
+        5) set_firewall_ports ;;
+        6) set_virtual_memory ;;
+        7) configure_zram_menu ;;
+        8) modify_swap_usage_threshold ;;
+        9) cleanup_swap ;;
+        10) optimize_kernel_parameters ;;
+        11) add_docker_tools ;;
+        12) set_dns_dhclient ;;
+        13) [[ "$OS_TYPE" == "Debian/Ubuntu" ]] && install_xanmod_kernel || echo "此选项仅适用于 Debian/Ubuntu" ;;
+        14) [[ "$OS_TYPE" == "Debian/Ubuntu" ]] && uninstall_xanmod_kernel || echo "此选项仅适用于 Debian/Ubuntu" ;;
+        15) [[ $(grep -i "debian" /etc/os-release) ]] && install_debian_cloud_kernel || echo "此选项仅适用于 Debian" ;;
+        16) [[ $(grep -i "debian" /etc/os-release) ]] && uninstall_debian_cloud_kernel || echo "此选项仅适用于 Debian" ;;
+        [qQ]) return 1 ;; # 返回非零值以退出主循环
+        *) echo "无效的选项，请输入正确的数字。" ;;
     esac
+    
+    # 每个操作执行后暂停，等待用户确认
+    echo ""
     read -p "按 Enter 键回到主菜单..."
+    return 0
 }
 
-# 主函数，接受选项并执行相应的脚本
+# 主函数
 main() {
+    # trap 命令用于在接收到指定信号时执行命令。EXIT 是一个特殊的信号，表示脚本即将退出。
     trap cleanup EXIT
+    
+    # 在脚本开始时执行一次环境检测
+    set_mirror
+    FIREWALL_TYPE=$(check_firewall)
+    OS_TYPE=$(get_os_info)
 
     while true; do
         display_menu
-        read -p "请输入选项数字：" choice
+        read -p "请输入选项数字: " user_choice
         # 根据用户选择执行相应的操作
-        handle_choice "$choice" || break
+        handle_choice "$user_choice" || break # 如果 handle_choice 返回非零值，则退出循环
     done
-    echo "欢迎再次使用本脚本！"
-    sleep 0.5s
 }
 
 # 清理函数，在脚本退出时执行
 cleanup() {
     echo "正在退出脚本..."
-    sleep 1s
+    sleep 0.8s
+    echo "欢迎再次使用本脚本！"
+    sleep 0.5s
     tput reset
 }
 
