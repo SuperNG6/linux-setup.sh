@@ -76,7 +76,7 @@ y | yes)
 
     # 如果 .bashrc 存在，则创建一个带时间戳的备份，更安全
     if [ -f "$bashrc_file" ]; then
-        backup_file="${bashrc_file}.bak.$(date +%F-%T)"
+        backup_file="${bashrc_file}.bak"
         echo "正在备份当前的 .bashrc 文件到 ${backup_file}"
         cp "$bashrc_file" "$backup_file"
     fi

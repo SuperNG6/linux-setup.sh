@@ -27,7 +27,7 @@ if [ ! -f "$DHCLIENT_CONF" ]; then
 fi
 
 # 2. 备份原始配置文件 (如果尚未备份)
-BACKUP_FILE="${DHCLIENT_CONF}.bak.$(date +%F)"
+BACKUP_FILE="${DHCLIENT_CONF}.bak"
 if [ ! -f "$BACKUP_FILE" ]; then
   echo "📦 正在备份原始配置文件到 ${BACKUP_FILE}..."
   cp "$DHCLIENT_CONF" "$BACKUP_FILE"
