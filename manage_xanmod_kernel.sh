@@ -3,14 +3,30 @@
 # ==============================================================================
 # 脚本名称: manage_xanmod_kernel.sh
 # 脚本功能: 独立执行 XanMod 内核的安装与卸载.
-# 调用方式: bash manage_xanmod_kernel.sh [install|uninstall]
-#           或通过管道执行: bash <(wget ...) [install|uninstall]
+#           自动从 SourceForge 下载最新的 LTS 内核版本.
+# 调用方式: bash manage_xanmod_kernel.sh [install|uninstall] [--debug]
+#           或通过管道执行: bash <(wget ...) [install|uninstall] [--debug]
 # ==============================================================================
 
 # 安装 XanMod 内核
 install_xanmod() {
+    # --- 调试模式设置 ---
+    local DEBUG=false
+    if [[ "$1" == "--debug" ]]; then
+        DEBUG=true
+        echo "--- DEBUG MODE ENABLED ---"
+    fi
+
+    debug_echo() {
+        if [[ "$DEBUG" == "true" ]]; then
+            # 使用 >&2 将调试信息输出到标准错误，不影响管道中的正常输出
+            echo "DEBUG: $@" >&2
+        fi
+    }
+    # --- 调试模式设置结束 ---
+
     echo "=========================================="
-    echo "  准备安装 XanMod 内核"
+    echo "  开始安装 XanMod 内核"
     echo "=========================================="
     echo "当前内核版本: $(uname -r)"
 
@@ -28,23 +44,82 @@ install_xanmod() {
         exit 1
     }')
     
+    local cpu_support_level
     if [[ $cpu_support_info == "CPU supports x86-64-v"* ]]; then
-        local cpu_support_level=${cpu_support_info#CPU supports x86-64-v}
+        cpu_support_level=${cpu_support_info#CPU supports x86-64-v}
         echo "SUCCESS: 你的CPU支持 XanMod 内核, 级别为 x86-64-v$cpu_support_level"
     else
         echo "ERROR: 你的CPU不受 XanMod 内核支持, 无法安装。"
         return 1
     fi
 
-    read -p "是否继续下载并安装 XanMod 内核 (v$cpu_support_level)？ (y/n): " continue_choice
+    echo "INFO: 正在从 SourceForge 查找最新的 LTS 内核版本..."
+    local SF_BASE_URL="https://sourceforge.net/projects/xanmod/files/releases/lts/"
+    
+    # 步骤 1: 解析HTML以查找最新的版本目录 (更健壮的方法)
+    local raw_html_main
+    raw_html_main=$(curl -sL "$SF_BASE_URL")
+    debug_echo "--- Fetched HTML from $SF_BASE_URL ---"
+    if [[ "$DEBUG" == "true" ]]; then echo "$raw_html_main" >&2; fi
+    
+    local LATEST_VERSION_DIR
+    LATEST_VERSION_DIR=$(echo "$raw_html_main" | grep -o '<span class="name">[0-9]\+\.[0-9]\+.*-xanmod[0-9]\+</span>' | sed -e 's/<span class="name">//' -e 's,</span>,,' | sort -V | tail -n 1)
+    debug_echo "Parsed LATEST_VERSION_DIR: $LATEST_VERSION_DIR"
+
+    if [ -z "$LATEST_VERSION_DIR" ]; then
+        echo "ERROR: 无法从 SourceForge 查找到最新的内核版本目录。请检查网络连接或稍后再试。"
+        return 1
+    fi
+    echo "INFO: 找到最新的内核版本系列: $LATEST_VERSION_DIR"
+    local LATEST_VERSION_URL="${SF_BASE_URL}${LATEST_VERSION_DIR}/"
+
+    # 步骤 2: 在版本目录中查找对应CPU架构的子目录 (更健壮的方法)
+    echo "INFO: 正在查找 v${cpu_support_level} 的架构子目录..."
+    local raw_html_version
+    raw_html_version=$(curl -sL "$LATEST_VERSION_URL")
+    debug_echo "--- Fetched HTML from $LATEST_VERSION_URL ---"
+    if [[ "$DEBUG" == "true" ]]; then echo "$raw_html_version" >&2; fi
+    
+    local ARCH_DIR_SUFFIX
+    ARCH_DIR_SUFFIX=$(echo "$raw_html_version" | grep -o '<span class="name">.*x64v'"${cpu_support_level}"'[^<]*</span>' | sed -e 's/<span class="name">//' -e 's,</span>,,' | head -n 1)
+    debug_echo "Parsed ARCH_DIR_SUFFIX: $ARCH_DIR_SUFFIX"
+    
+    if [ -z "$ARCH_DIR_SUFFIX" ]; then
+        echo "ERROR: 在 $LATEST_VERSION_DIR 中找不到 v${cpu_support_level} 的架构子目录。"
+        return 1
+    fi
+    echo "INFO: 找到架构子目录: $ARCH_DIR_SUFFIX"
+    local FILES_PAGE_URL="${LATEST_VERSION_URL}${ARCH_DIR_SUFFIX}/"
+
+    # 步骤 3: 从架构子目录页面获取特定CPU级别的内核文件名 (更健壮的方法)
+    echo "INFO: 正在获取内核文件列表..."
+    local raw_html_files
+    raw_html_files=$(curl -sL "$FILES_PAGE_URL")
+    debug_echo "--- Fetched HTML from $FILES_PAGE_URL ---"
+    if [[ "$DEBUG" == "true" ]]; then echo "$raw_html_files" >&2; fi
+    
+    local HEADERS_FILE
+    HEADERS_FILE=$(echo "$raw_html_files" | grep -o '<span class="name">linux-headers-.*-x64v'"${cpu_support_level}"'-xanmod.*\.deb</span>' | sed -e 's/<span class="name">//' -e 's,</span>,,' | head -n 1)
+    debug_echo "Parsed HEADERS_FILE: $HEADERS_FILE"
+    
+    local IMAGE_FILE
+    IMAGE_FILE=$(echo "$raw_html_files" | grep -o '<span class="name">linux-image-.*-x64v'"${cpu_support_level}"'-xanmod.*\.deb</span>' | sed -e 's/<span class="name">//' -e 's,</span>,,' | head -n 1)
+    debug_echo "Parsed IMAGE_FILE: $IMAGE_FILE"
+
+    if [ -z "$HEADERS_FILE" ] || [ -z "$IMAGE_FILE" ]; then
+        echo "ERROR: 无法为 x86-64-v${cpu_support_level} 找到对应的内核文件。可能该版本尚未发布或支持已更改。"
+        return 1
+    fi
+
+    echo "找到内核文件:"
+    echo "  - $HEADERS_FILE"
+    echo "  - $IMAGE_FILE"
+
+    read -p "是否继续下载并安装以上 XanMod 内核？ (y/n): " continue_choice
     if [[ ! "$continue_choice" =~ ^[Yy]$ ]]; then
         echo "操作已取消。"
         return 0
     fi
-
-    echo "INFO: 开始下载 XanMod 内核..."
-    echo "INFO: XanMod内核官网 https://xanmod.org"
-    echo "INFO: 内核来自 https://sourceforge.net/projects/xanmod/files/releases/lts/"
 
     local temp_folder
     temp_folder=$(mktemp -d)
@@ -54,50 +129,32 @@ install_xanmod() {
     fi
     cd "$temp_folder" || return 1
 
-    local headers_file image_file headers_md5 image_md5
-    case $cpu_support_level in
-        2)
-            headers_file="linux-headers-6.1.46-x64v2-xanmod1_6.1.46-x64v2-xanmod1-0.20230816.g11dcd23_amd64.deb"
-            image_file="linux-image-6.1.46-x64v2-xanmod1_6.1.46-x64v2-xanmod1-0.20230816.g11dcd23_amd64.deb"
-            headers_md5="45c85d1bcb07bf171006a3e34b804db0"
-            image_md5="63c359cef963a2e9f1b7181829521fc3"
-            ;;
-        3)
-            headers_file="linux-headers-6.1.46-x64v3-xanmod1_6.1.46-x64v3-xanmod1-0.20230816.g11dcd23_amd64.deb"
-            image_file="linux-image-6.1.46-x64v3-xanmod1_6.1.46-x64v3-xanmod1-0.20230816.g11dcd23_amd64.deb"
-            headers_md5="6ae3e253a8aeabd80458df4cb4da70cf"
-            image_md5="d6ea43a2a6686b86e0ac23f800eb95a4"
-            ;;
-        4)
-            headers_file="linux-headers-6.1.46-x64v4-xanmod1_6.1.46-x64v4-xanmod1-0.20230816.g11dcd23_amd64.deb"
-            image_file="linux-image-6.1.46-x64v4-xanmod1_6.1.46-x64v4-xanmod1-0.20230816.g11dcd23_amd64.deb"
-            headers_md5="9c41a4090a8068333b7dd56b87dd01df"
-            image_md5="7d30eef4b9094522fc067dc19f7cc92e"
-            ;;
-        *)
-            echo "ERROR: 你的CPU不受 XanMod 内核支持, 无法安装。"
-            cd / && rm -rf "$temp_folder"
-            return 1
-            ;;
-    esac
+    local HEADERS_URL="${FILES_PAGE_URL}${HEADERS_FILE}/download"
+    local IMAGE_URL="${FILES_PAGE_URL}${IMAGE_FILE}/download"
+    
+    debug_echo "HEADERS_URL: $HEADERS_URL"
+    debug_echo "IMAGE_URL: $IMAGE_URL"
 
-    local download_url_base="${YES_CN}https://github.com/SuperNG6/linux-setup.sh/releases/download/0816/"
-    echo "INFO: 正在下载内核文件..."
-    wget "${download_url_base}${headers_file}" && wget "${download_url_base}${image_file}"
+    echo "INFO: 开始下载 XanMod 内核..."
+    echo "INFO: 从 $HEADERS_URL 下载..."
+    # 使用 -O 参数指定输出文件名，避免URL中的参数污染文件名
+    wget -O "$HEADERS_FILE" "$HEADERS_URL"
     if [ $? -ne 0 ]; then
-        echo "ERROR: 文件下载失败。"
+        echo "ERROR: headers 文件下载失败。"
         cd / && rm -rf "$temp_folder"
         return 1
     fi
 
-    echo "INFO: 正在校验文件 MD5..."
-    if [ "$(md5sum "$headers_file" | awk '{print $1}')" != "$headers_md5" ] || \
-       [ "$(md5sum "$image_file" | awk '{print $1}')" != "$image_md5" ]; then
-        echo "ERROR: 下载的文件 MD5 校验失败, 可能文件已损坏或被篡改。"
+    echo "INFO: 从 $IMAGE_URL 下载..."
+    # 使用 -O 参数指定输出文件名
+    wget -O "$IMAGE_FILE" "$IMAGE_URL"
+    if [ $? -ne 0 ]; then
+        echo "ERROR: image 文件下载失败。"
         cd / && rm -rf "$temp_folder"
         return 1
     fi
-    echo "SUCCESS: 文件校验成功。"
+    
+    echo "SUCCESS: 文件下载成功。"
 
     echo "INFO: 正在安装内核, 请稍候..."
     dpkg -i linux-image-*.deb linux-headers-*.deb
@@ -162,16 +219,17 @@ uninstall_xanmod() {
 # --- 主逻辑 ---
 main() {    
     local action="$1"
+    local debug_flag="$2"
     
     if [ -z "$action" ]; then
         echo "错误: 脚本需要一个操作参数。" >&2
-        echo "用法: $0 [install|uninstall]" >&2
+        echo "用法: $0 [install|uninstall] [--debug]" >&2
         exit 1
     fi
     
     case "$action" in
         install)
-            install_xanmod
+            install_xanmod "$debug_flag"
             ;;
         uninstall)
             uninstall_xanmod
