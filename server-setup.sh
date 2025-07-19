@@ -324,57 +324,118 @@ install_components() {
 }
 
 # 添加公钥到 authorized_keys，用于 SSH 免密登录
-add_public_key() {
-    local public_key authorized_keys_file backup_file
-    # 使用 ~ 而不是 $HOME 来确保在所有情况下都能正确解析主目录
+add_public_keys() {
+    local authorized_keys_file backup_file
+    local all_keys public_key
+    local added_count=0 skipped_count=0 invalid_count=0 failed_count=0 total_count=0
+
+    # 使用 ~ 来确保在所有情况下都能正确解析主目录
     authorized_keys_file=~/.ssh/authorized_keys
     backup_file="${authorized_keys_file}.bak"
 
-    read -p "请输入要添加的公钥: " -r public_key
+    # --- 1. 获取用户输入 ---
+    echo "请粘贴一个或多个 SSH 公钥 (每行一个)。"
+    echo "粘贴完成后，请按 Ctrl+D 来结束输入并开始添加。"
+    # 使用 cat 读取所有标准输入，直到遇到 EOF (Ctrl+D)
+    all_keys=$(cat)
 
-    if [[ -z "$public_key" ]]; then
-        echo "错误: 公钥不能为空。" >&2
+    if [[ -z "$all_keys" ]]; then
+        echo "错误: 没有输入任何公钥。" >&2
         return 1
     fi
 
+    # --- 2. 准备 SSH 目录和文件 ---
     # 确保 .ssh 目录存在并拥有正确的权限 (700)
-    mkdir -p ~/.ssh && chmod 700 ~/.ssh || {
-        echo "错误: 无法创建或设置 .ssh 目录权限。" >&2
+    if ! mkdir -p ~/.ssh || ! chmod 700 ~/.ssh; then
+        echo "错误: 无法创建或设置 ~/.ssh 目录的权限。" >&2
         return 1
-    }
+    fi
 
     # 如果 authorized_keys 文件不存在，创建它并设置正确的权限 (600)
-    touch "$authorized_keys_file" && chmod 600 "$authorized_keys_file" || {
-        echo "错误: 无法创建或设置 authorized_keys 文件权限。" >&2
+    if ! touch "$authorized_keys_file" || ! chmod 600 "$authorized_keys_file"; then
+        echo "错误: 无法创建或设置 authorized_keys 文件的权限。" >&2
         return 1
-    }
-
-    # 检查公钥是否已存在
-    if grep -qF -- "$public_key" "$authorized_keys_file"; then
-        echo "警告: 该公钥已存在于 authorized_keys 文件中。"
-        return 0
     fi
 
-    echo "正在备份 authorized_keys 文件..."
-    cp -f "$authorized_keys_file" "$backup_file" || {
-        echo "错误: 无法创建备份文件。" >&2
+    # --- 3. 备份原始文件 ---
+    echo "正在备份当前的 authorized_keys 文件到 ${backup_file} ..."
+    if ! cp -f "$authorized_keys_file" "$backup_file"; then
+        echo "错误: 无法创建备份文件。操作已中止。" >&2
         return 1
-    }
+    fi
 
-    echo "正在添加公钥..."
-    # 将公钥追加到文件末尾
-    echo "$public_key" >>"$authorized_keys_file"
+    # --- 4. 逐行处理公钥 ---
+    # 使用 while 循环逐行读取 all_keys 变量中的内容
+    # `|| [[ -n "$public_key" ]]` 确保即使最后一行没有换行符也能被处理
+    while IFS= read -r public_key || [[ -n "$public_key" ]]; do
+        # 忽略空行或只包含空格的行
+        if [[ -z "${public_key// /}" ]]; then
+            continue
+        fi
 
-    # 验证公钥是否成功添加
-    if grep -qF -- "$public_key" "$authorized_keys_file"; then
-        echo "成功: 公钥已添加。"
-        rm -f "$backup_file"
-        return 0
+        ((total_count++))
+        echo "----------------------------------------"
+        echo "正在处理第 ${total_count} 个条目..."
+
+        # --- 新增: 公钥格式验证 ---
+        # 使用正则表达式检查公钥是否以已知的类型开头，并包含一个有效的密钥主体。
+        # 这可以有效地防止将格式错误的字符串或随机乱码添加到文件中。
+        if ! [[ "$public_key" =~ ^(ssh-(rsa|dss|ed25519)|ecdsa-sha2-nistp(256|384|521))[[:space:]]+[A-Za-z0-9+/=]+ ]]; then
+            echo "错误: 格式无效，看起来不是一个合法的 SSH 公钥。已跳过。"
+            echo "      内容: ${public_key:0:40}..."
+            ((invalid_count++))
+            continue
+        fi
+        # --- 验证结束 ---
+
+        echo "正在处理公钥: ${public_key:0:30}..."
+
+        # 检查公钥是否已存在
+        if grep -qF -- "$public_key" "$authorized_keys_file"; then
+            echo "警告: 该公钥已存在，将跳过。"
+            ((skipped_count++))
+        else
+            # 将公钥追加到文件末尾
+            echo "$public_key" >>"$authorized_keys_file"
+
+            # 验证公钥是否成功添加
+            if grep -qF -- "$public_key" "$authorized_keys_file"; then
+                echo "成功: 公钥已添加。"
+                ((added_count++))
+            else
+                echo "错误: 公钥添加失败！(I/O error)" >&2
+                ((failed_count++))
+            fi
+        fi
+    done <<< "$all_keys" # 使用 Here String 将变量内容重定向到循环
+
+    # --- 5. 显示信息 ---
+    echo "========================================"
+    echo "操作完成！结果如下："
+    echo "  成功添加: ${added_count} 个"
+    echo "  跳过 (已存在): ${skipped_count} 个"
+    echo "  格式无效: ${invalid_count} 个"
+    echo "  写入失败: ${failed_count} 个"
+    echo "========================================"
+
+    if [[ $failed_count -gt 0 || $invalid_count -gt 0 ]]; then
+        echo "警告: 处理过程中出现问题。"
+        if [[ $invalid_count -gt 0 ]]; then
+            echo "有 ${invalid_count} 个输入因格式无效被跳过。"
+        fi
+        if [[ $failed_count -gt 0 ]]; then
+            echo "有 ${failed_count} 个公钥写入失败。"
+        fi
+        echo "原始文件已备份在: ${backup_file}"
+        echo "请检查失败的公钥并手动处理。"
+        return 1
+    elif [[ $added_count -gt 0 ]]; then
+        echo "所有新公钥均已成功添加。"
     else
-        echo "错误: 公钥添加失败，正在从备份恢复。" >&2
-        mv -f "$backup_file" "$authorized_keys_file"
-        return 1
+        echo "没有添加任何新公钥。"
     fi
+
+    return 0
 }
 
 # 关闭 SSH 的密码登录功能，强制使用密钥登录，提高安全性
@@ -1263,7 +1324,7 @@ handle_choice() {
     clear
     case $choice in
         1) install_components ;;
-        2) add_public_key ;;
+        2) add_public_keys ;;
         3) disable_ssh_password_login ;;
         4) modify_ssh_port ;;
         5) set_firewall_ports ;;
