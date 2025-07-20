@@ -695,117 +695,20 @@ modify_swap_usage_threshold() {
 
 
 # --- 内核与网络优化模块 ---
-
-# 优化内核网络相关参数：启用 BBR 并根据 BDP 自适应 adv_win_scale
+# 优化内核网络相关参数：启用 BBR 并根据 BDP 自适应网络调参
 optimize_kernel_parameters() {
-    read -p "此操作将修改网络相关内核参数以启用 BBR 并进行优化，是否继续？(y/n): " choice
-    if [[ "$choice" != [Yy] ]]; then
-        echo "操作已取消。"
-        return 0
-    fi
-
-    echo "正在备份原始内核参数 /etc/sysctl.conf → /etc/sysctl.conf.bak"
-    cp /etc/sysctl.conf /etc/sysctl.conf.bak
-
-    # 1. 检测系统内存
-    echo "检测系统内存……"
-    local mem_kb mem_mb
-    mem_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
-    mem_mb=$((mem_kb/1024))
-    echo "  系统内存: ${mem_mb} MB"
-
-    # 2. 手动/默认输入 RTT & 带宽
-    local rtt bw
-    read -p "是否手动输入延迟(RTT ms)和带宽(Mbit/s)? [y/N]: " manual
-    if [[ $manual =~ ^[Yy] ]]; then
-        read -p "  请输入你ping服务器的延迟(ms 只输入数字): " rtt
-        read -p "  请输入你的宽带网速(Mbit/s 只输入数字): " bw
+    # YES_CN 变量由脚本开头的 set_mirror 函数设置并导出
+    local script_url="${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/optimize_kernel_parameters.sh"
+    
+    # 下载并通过管道传递给bash执行,
+    if bash <(wget -qO - "$script_url"); then
+        echo "内核参数优化器初始化..."
     else
-        rtt=160
-        bw=400
-        echo "  使用默认 RTT=${rtt} ms, 带宽=${bw} Mbit/s"
+        echo "内核参数优化器初始化失败"
+        return 1
     fi
-    : ${rtt:=160}
-    : ${bw:=400}
-
-    # 3. 计算 BDP(字节)：bdp = bw(Mbit/s)×1024*1024/8 × (rtt/1000)
-    local bw_bytes bdp
-    bw_bytes=$(awk "BEGIN{printf \"%.0f\", $bw*1024*1024/8}")
-    bdp=$(awk "BEGIN{printf \"%.0f\", $bw_bytes*$rtt/1000}")
-    echo "  计算得到 BDP = ${bdp} 字节"
-
-    # 4. 根据内存分区决定默认基准 case_rmem
-    local case_rmem
-    if (( mem_mb <= 512 )); then
-        case_rmem=$((16*1024*1024))   # 16MB
-    elif (( mem_mb <= 1024 )); then
-        case_rmem=$((32*1024*1024))   # 32MB
-    else
-        case_rmem=$((64*1024*1024))   # 64MB
-    fi
-
-    # 5. 计算最终 target_rmem，不超过内存一半，不低于4KB
-    local half_mem_bytes target_rmem
-    half_mem_bytes=$((mem_kb*1024/2))
-    target_rmem=$case_rmem
-    (( bdp > target_rmem )) && target_rmem=$bdp
-    (( target_rmem > half_mem_bytes )) && target_rmem=$half_mem_bytes
-    (( target_rmem < 4096 )) && target_rmem=4096
-    echo "  最终 rmem_max = ${target_rmem} 字节"
-
-    # 6. 基于 target_rmem / BDP 比值动态选 adv_win_scale
-    local ratio adv_scale
-    ratio=$(awk "BEGIN{printf \"%.2f\", $target_rmem/$bdp}")
-    if awk "BEGIN{exit !($ratio < 1.0)}"; then
-        adv_scale=0
-    elif awk "BEGIN{exit !($ratio < 2.0)}"; then
-        adv_scale=1
-    elif awk "BEGIN{exit !($ratio < 4.0)}"; then
-        adv_scale=2
-    else
-        adv_scale=3
-    fi
-    echo "  计算得到 tcp_adv_win_scale = ${adv_scale} (缓冲/BDP = ${ratio}×)"
-
-    # 7. 待写入的 sysctl 参数
-    parameters=(
-        "net.core.default_qdisc = fq_pie"
-        "net.ipv4.tcp_congestion_control = bbr"
-        "net.core.rmem_max = $target_rmem"
-        "net.core.wmem_max = $target_rmem"
-        "net.ipv4.tcp_rmem = 4096 87380 $target_rmem"
-        "net.ipv4.tcp_wmem = 4096 16384 $target_rmem"
-        "net.ipv4.tcp_window_scaling = 1"
-        "net.ipv4.tcp_adv_win_scale = $adv_scale"
-        "net.ipv4.tcp_low_latency = 1"
-        "net.ipv4.tcp_notsent_lowat = 131072"
-        "net.ipv4.tcp_slow_start_after_idle = 0"
-        "net.ipv4.tcp_sack = 1"
-        "net.ipv4.tcp_timestamps = 1"
-        "net.ipv4.ip_forward = 1"
-        "vm.overcommit_memory = 1"
-        "fs.inotify.max_user_watches = 524288"
-    )
-
-    # 8. 注释掉老的 tcp_fastopen （如存在）
-    sed -i 's/^[[:space:]]*net\.ipv4\.tcp_fastopen/#&/' /etc/sysctl.conf
-
-    # 9. 写入或更新 /etc/sysctl.conf
-    for p in "${parameters[@]}"; do
-        key="${p%% =*}"
-        if grep -qE "^[[:space:]]*${key}\b" /etc/sysctl.conf; then
-            sed -i "s|^[[:space:]]*${key}.*|${p}|" /etc/sysctl.conf
-        else
-            echo "${p}" >> /etc/sysctl.conf
-        fi
-    done
-
-    # 10. 重新加载生效
-    echo "应用内核参数…"
-    sysctl -p
-
-    echo "====== 内核参数优化完成 ======"
 }
+
 
 # 安装 XanMod 内核 (仅限 Debian/Ubuntu)
 install_xanmod_kernel() {
