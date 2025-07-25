@@ -18,10 +18,10 @@
 
 optimize_kernel_parameters() {
     # 确认操作
-    read -p "您确定要优化Linux内核网络参数吗？这将修改 '/etc/sysctl.conf'。 (y/n): " choice
+    read -p "您确定要优化Linux内核网络与内存参数吗？这将修改 '/etc/sysctl.conf'。 (y/n): " choice
     case "$choice" in
         [Yy]*)
-            echo "--> 操作确认，开始网络优化..."
+            echo "--> 操作确认，开始网络&内存优化..."
             ;;
         *)
             echo "--> 操作已取消。"
@@ -42,7 +42,7 @@ optimize_kernel_parameters() {
     mem_mb=$((mem_kb / 1024))
     echo "    系统内存: ${mem_mb} MB"
 
-    # --- 步骤 3: 获取用户网络环境信息 (支持不对称带宽) ---
+    # --- 步骤 3: 获取用户网络环境信息 ---
     read -p "--> 是否需要手动输入网络参数? [y/N]: " manual_input
     if [[ $manual_input =~ ^[Yy]$ ]]; then
         read -p "    请输入您的客户端到服务器的平均网络延迟 (RTT, 单位ms, 例如 170): " rtt
@@ -52,7 +52,7 @@ optimize_kernel_parameters() {
         rtt=170
         download_bw=1000
         upload_bw=100
-        echo "--> 使用不对称带宽默认值: RTT=${rtt}ms, 下载=${download_bw}Mbit/s, 上传=${upload_bw}Mbit/s"
+        echo "--> 使用默认值: RTT=${rtt}ms, 下载=${download_bw}Mbit/s, 上传=${upload_bw}Mbit/s"
     fi
 
     # 确保输入不为空，提供一个最终的默认值
@@ -72,7 +72,7 @@ optimize_kernel_parameters() {
     echo "--> 下载方向BDP: ${download_bdp_bytes} 字节 (约 $(awk "BEGIN{printf \"%.2f\", ${download_bdp_bytes}/1024/1024}") MB)"
     echo "    上传方向BDP: ${upload_bdp_bytes} 字节 (约 $(awk "BEGIN{printf \"%.2f\", ${upload_bdp_bytes}/1024/1024}") MB)"
 
-    # --- 步骤 5: 不对称带宽优化策略 ---
+    # --- 步骤 5: 带宽优化策略 ---
     # 目标：下载优先，上传确保能跑满100M即可
     # 策略：接收缓冲区优化，发送缓冲区保守优化
 
@@ -100,6 +100,15 @@ optimize_kernel_parameters() {
         target_send_buffer_bytes=$min_send_buffer_bytes
     fi
 
+    # 根据网络情况计算 tcp_adv_win_scale
+    if [ "$download_bw" -eq "$upload_bw" ]; then
+        echo "    [信息] 上下行带宽对等，tcp_adv_win_scale 设为: 1"
+        tcp_adv_win_scale=1
+    else
+        echo "    [信息] 不对称带宽，tcp_adv_win_scale 设为: 2"
+        tcp_adv_win_scale=2
+    fi
+
     # 内存限制检查：总缓冲区不超过60%系统内存（下载优先策略）
     max_total_buffer_bytes=$((mem_kb * 1024 * 3 / 5))
     total_target_bytes=$((target_recv_buffer_bytes + target_send_buffer_bytes))
@@ -109,7 +118,7 @@ optimize_kernel_parameters() {
         # 优先保证下载性能：接收缓冲区占总限制的80%，发送缓冲区占20%
         final_recv_buffer_bytes=$((max_total_buffer_bytes * 4 / 5))
         final_send_buffer_bytes=$((max_total_buffer_bytes * 1 / 5))
-        echo "           [不对称优化] 接收=${final_recv_buffer_bytes}字节, 发送=${final_send_buffer_bytes}字节"
+        echo "           [优化] 接收=${final_recv_buffer_bytes}字节, 发送=${final_send_buffer_bytes}字节"
     else
         final_recv_buffer_bytes=$target_recv_buffer_bytes
         final_send_buffer_bytes=$target_send_buffer_bytes
@@ -118,8 +127,8 @@ optimize_kernel_parameters() {
     # 兼容性：设置全局最大值为接收缓冲区大小（因为下载是主要需求）
     final_buffer_bytes=$final_recv_buffer_bytes
 
-    echo "--> [不对称优化] 接收缓冲区(下载): ${final_recv_buffer_bytes} 字节 (约 $(awk "BEGIN{printf \"%.1f\", ${final_recv_buffer_bytes}/1024/1024}") MB)"
-    echo "    [不对称优化] 发送缓冲区(上传): ${final_send_buffer_bytes} 字节 (约 $(awk "BEGIN{printf \"%.1f\", ${final_send_buffer_bytes}/1024/1024}") MB)"
+    echo "--> [优化] 接收缓冲区(下载): ${final_recv_buffer_bytes} 字节 (约 $(awk "BEGIN{printf \"%.1f\", ${final_recv_buffer_bytes}/1024/1024}") MB)"
+    echo "    [优化] 发送缓冲区(上传): ${final_send_buffer_bytes} 字节 (约 $(awk "BEGIN{printf \"%.1f\", ${final_send_buffer_bytes}/1024/1024}") MB)"
     echo "    [带宽分析] 下载=${download_bw}Mbps→缓冲区倍数=$(awk "BEGIN{printf \"%.1f\", ${final_recv_buffer_bytes}/${download_bdp_bytes}}"), 上传=${upload_bw}Mbps→缓冲区倍数=$(awk "BEGIN{printf \"%.1f\", ${final_send_buffer_bytes}/${upload_bdp_bytes}}")"
 
     # --- 步骤 6: 计算UDP总缓冲区大小 ---
@@ -224,10 +233,10 @@ net.core.default_qdisc = fq
 net.ipv4.tcp_moderate_rcvbuf = 0
 
 # ---- B. 全局套接字缓冲区核心参数 ----
-# 针对不对称网络：下载优先，上传够用即可
+# 优化：下载优先，上传够用即可
 net.core.rmem_max = ${final_recv_buffer_bytes}
 net.core.wmem_max = ${final_send_buffer_bytes}
-# 不对称默认值：下载默认更大，上传适中
+# 默认值：下载默认更大，上传适中
 net.core.rmem_default = 16777216
 net.core.wmem_default = 2097152
 
@@ -247,18 +256,18 @@ net.ipv4.tcp_slow_start_after_idle = 0
 net.ipv4.tcp_mtu_probing = 1
 # 上传优化：较小的发送队列下限，避免积压
 net.ipv4.tcp_notsent_lowat = 32768
-# 接收窗口分配优化，下载优先。
-net.ipv4.tcp_adv_win_scale = 2
+# 接收窗口分配优化，下载优先为2，对称网络为1。
+net.ipv4.tcp_adv_win_scale = ${tcp_adv_win_scale}
 # 适中的孤儿连接数
 net.ipv4.tcp_max_orphans = 32768
-# 不对称内存分配：更多给接收
+# 内存分配：更多给接收
 net.ipv4.tcp_mem = 524288 1048576 2097152
 # 保守重传策略，避免上传抖动
 net.ipv4.tcp_retries1 = 3
 net.ipv4.tcp_retries2 = 10
 # 适度丢包检测
 net.ipv4.tcp_frto = 1
-# 不对称优化：禁用发送缓冲区的自动调整，避免上传波动
+# 优化：禁用发送缓冲区的自动调整，避免上传波动
 net.ipv4.tcp_moderate_rcvbuf = 1
 
 # ---- D. UDP/QUIC 性能优化 (针对 Hysteria2) ----
@@ -291,7 +300,7 @@ net.ipv4.ip_forward = 1
 
 # ---- F. 内存与系统相关 (内存策略) ----
 # 降低内核使用Swap分区的倾向。
-vm.swappiness = 1
+vm.swappiness = 5
 # 允许内核"过度承诺"内存。
 vm.overcommit_memory = 1
 # 设置：允许更大的过度承诺比例
