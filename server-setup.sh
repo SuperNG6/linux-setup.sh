@@ -717,7 +717,7 @@ install_xanmod_kernel() {
     
     # 下载并通过管道传递给bash执行, 传递 'install' 参数
     if bash <(wget -qO - "$script_url") install; then
-        echo "XanMod 内核安装脚本执行完成。"
+        echo ""
     else
         echo "错误：XanMod 内核安装脚本下载或执行失败。"
         return 1
@@ -731,7 +731,7 @@ uninstall_xanmod_kernel() {
     
     # 下载并通过管道传递给bash执行, 传递 'uninstall' 参数
     if bash <(wget -qO - "$script_url") uninstall; then
-        echo "XanMod 内核卸载脚本执行完成。"
+        echo ""
     else
         echo "错误：XanMod 内核卸载脚本下载或执行失败。"
         return 1
@@ -1156,7 +1156,6 @@ set_dns_dhclient() {
 
     if [ $? -eq 0 ]; then
         echo ""
-        echo "CF、谷歌DNS 设置完毕。"
     else
         echo "错误：DNS 设置失败。"
         return 1

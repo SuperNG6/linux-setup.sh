@@ -8,6 +8,19 @@
 # 版本: 2.1 (改进版)
 # ==============================================================================
 
+# 确认操作
+read -p "您确定要优化系统DNS么？这将修改 '/etc/dhcp/dhclient.conf'。 (y/n): " choice
+case "$choice" in
+    [Yy]*)
+        echo "🚀 开始配置静态 DNS (通过 dhclient.conf)..."
+        ;;
+    *)
+        echo "--> 操作已取消。"
+        exit 0
+        ;;
+esac
+
+
 # --- 配置 ---
 PRIMARY_DNS="1.1.1.1"
 SECONDARY_DNS="8.8.8.8"
@@ -16,8 +29,6 @@ DHCLIENT_CONF="/etc/dhcp/dhclient.conf"
 CUSTOM_DNS_COMMENT="# Custom DNS servers added by script (set_dns_via_dhclient.sh)"
 
 # --- 脚本主体 ---
-
-echo "🚀 开始配置静态 DNS (通过 dhclient.conf)..."
 
 # 1. 检查 dhclient.conf 文件是否存在
 if [ ! -f "$DHCLIENT_CONF" ]; then
