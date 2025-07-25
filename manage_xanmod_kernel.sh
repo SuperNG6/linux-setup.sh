@@ -82,8 +82,19 @@ install_xanmod() {
     
     local ARCH_DIR_SUFFIX
     ARCH_DIR_SUFFIX=$(echo "$raw_html_version" | grep -o '<span class="name">.*x64v'"${cpu_support_level}"'[^<]*</span>' | sed -e 's/<span class="name">//' -e 's,</span>,,' | head -n 1)
-    debug_echo "Parsed ARCH_DIR_SUFFIX: $ARCH_DIR_SUFFIX"
+    debug_echo "Parsed ARCH_DIR_SUFFIX for v${cpu_support_level}: $ARCH_DIR_SUFFIX"
     
+    # ---  如果找不到 v4，则回退到 v3 ---
+    if [ -z "$ARCH_DIR_SUFFIX" ] && [ "$cpu_support_level" -eq 4 ]; then
+        echo "INFO: 未找到 v4 版本的内核, 正在尝试回退到 v3..."
+        cpu_support_level=3 # 将级别降级为 3
+        
+        # 再次尝试查找 v3 目录
+        ARCH_DIR_SUFFIX=$(echo "$raw_html_version" | grep -o '<span class="name">.*x64v'"${cpu_support_level}"'[^<]*</span>' | sed -e 's/<span class="name">//' -e 's,</span>,,' | head -n 1)
+        debug_echo "Parsed ARCH_DIR_SUFFIX for fallback v${cpu_support_level}: $ARCH_DIR_SUFFIX"
+    fi
+
+    # 在可能的回退之后再次检查
     if [ -z "$ARCH_DIR_SUFFIX" ]; then
         echo "ERROR: 在 $LATEST_VERSION_DIR 中找不到 v${cpu_support_level} 的架构子目录。"
         return 1
