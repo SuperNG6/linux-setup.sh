@@ -28,7 +28,7 @@ repo_base_url="${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.s
 
 # --- 使用数组管理脚本列表，避免重复的 wget 命令 ---
 scripts_to_download=(
-    "docker_compose_utils.sh"
+    "docker_utils.sh"
     "dlogs.sh"
     "dcip.sh"
     "dclogs.sh"

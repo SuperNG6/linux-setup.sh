@@ -1,7 +1,10 @@
 #!/bin/bash
 
-# 引用docker_compose_utils脚本
-source /root/.docker_tools/docker_compose_utils.sh
+# 获取脚本所在目录
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+# 引用docker_utils脚本
+source "${SCRIPT_DIR}/docker_utils.sh"
+
 # 版本监测
 check_docker_compose_version
 

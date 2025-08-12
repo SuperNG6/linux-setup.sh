@@ -64,3 +64,49 @@ select_docker_compose_dir() {
         exit 1
     }
 }
+
+select_container() {
+    local prompt="$1"
+    local selected_container=""
+    local containers=($(docker ps --format "{{.Names}}"))
+
+    if [ ${#containers[@]} -eq 0 ]; then
+        echo "没有正在运行的Docker容器。" >&2
+        return 1
+    fi
+
+    echo "可用的容器：" >&2
+    for i in "${!containers[@]}"; do
+        echo "$((i + 1)). ${containers[$i]}" >&2
+    done
+    echo >&2
+
+    while true; do
+        read -p "$prompt (输入数字或容器名称): " input
+
+        if [ -z "$input" ]; then
+            continue
+        fi
+
+        if [[ "$input" =~ ^[0-9]+$ ]]; then
+            if ((input > 0 && input <= ${#containers[@]})); then
+                selected_container="${containers[$((input-1))]}"
+                break
+            else
+                echo "输入的数字无效，请输入 1 到 ${#containers[@]} 之间的数字。" >&2
+            fi
+        elif [[ " ${containers[@]} " =~ " ${input} " ]]; then
+            selected_container="$input"
+            break
+        else
+            echo "无效的输入。请从下面的列表中选择。" >&2
+            echo "可用的容器：" >&2
+            for i in "${!containers[@]}"; do
+                echo "$((i + 1)). ${containers[$i]}" >&2
+            done
+            echo >&2
+        fi
+    done
+
+    echo "$selected_container"
+}
