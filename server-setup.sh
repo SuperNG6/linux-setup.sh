@@ -874,6 +874,25 @@ modify_ssh_port() {
     fi
 }
 
+
+# 配置 Fail2ban 保护
+configure_fail2ban() {
+    echo "正在准备下载并执行 Fail2ban 配置脚本..."
+    # YES_CN 变量由脚本开头的 set_mirror 函数设置
+    local script_url="${YES_CN}https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/configure_fail2ban.sh"
+    
+    echo "将从以下地址下载脚本: $script_url"
+    
+    # 下载并直接通过管道传递给bash执行
+    if bash <(wget -qO - "$script_url"); then
+        echo "Fail2ban 配置脚本执行完成。"
+    else
+        echo "错误：Fail2ban 配置脚本下载或执行失败。"
+        return 1
+    fi
+}
+
+
 # 设置防火墙端口（用户交互界面）
 set_firewall_ports() {
     clear
@@ -1194,24 +1213,25 @@ display_menu() {
     echo -e "${GREEN} 2${RESET}       添加 SSH 公钥 (免密登录)"
     echo -e "${GREEN} 3${RESET}       关闭 SSH 密码登录 (推荐)"
     echo -e "${GREEN} 4${RESET}       修改 SSH 端口号"
-    echo -e "${GREEN} 5${RESET}       设置防火墙端口 (开放/关闭)"
+    echo -e "${GREEN} 5${RESET}       配置 Fail2ban"
+    echo -e "${GREEN} 6${RESET}       设置防火墙端口 (开放/关闭)"
     echo ""
     echo -e "----------- ${BOLD}性能与优化${RESET} ----------------------------"
-    echo -e "${GREEN} 6${RESET}       设置 Swap 虚拟内存"
-    echo -e "${GREEN} 7${RESET}       配置 ZRAM"
-    echo -e "${GREEN} 8${RESET}       修改 Swap 使用阈值 (Swappiness)"
-    echo -e "${GREEN} 9${RESET}       清理 Swap 缓存"
-    echo -e "${GREEN} 10${RESET}      优化内核参数"
-    echo -e "${GREEN} 11${RESET}      添加 Docker 工具脚本"
-    echo -e "${GREEN} 12${RESET}      设置公共 DNS (CF/Google)"
+    echo -e "${GREEN} 7${RESET}       设置 Swap 虚拟内存"
+    echo -e "${GREEN} 8${RESET}       配置 ZRAM"
+    echo -e "${GREEN} 9${RESET}       修改 Swap 使用阈值 (Swappiness)"
+    echo -e "${GREEN} 10${RESET}       清理 Swap 缓存"
+    echo -e "${GREEN} 11${RESET}      优化内核参数"
+    echo -e "${GREEN} 12${RESET}      添加 Docker 工具脚本"
+    echo -e "${GREEN} 13${RESET}      设置公共 DNS (CF/Google)"
     echo ""
     if [[ "$OS_TYPE" == "Debian/Ubuntu" ]]; then
         echo -e "----------- ${BOLD}内核管理 (Debian/Ubuntu)${RESET} -------------"
-        echo -e "${GREEN} 13${RESET}      安装 XanMod 内核 (含BBRv3)"
-        echo -e "${GREEN} 14${RESET}      卸载 XanMod 内核"
+        echo -e "${GREEN} 14${RESET}      安装 XanMod 内核 (含BBRv3)"
+        echo -e "${GREEN} 16${RESET}      卸载 XanMod 内核"
         if [[ $(grep -i "debian" /etc/os-release) ]]; then
-            echo -e "${GREEN} 15${RESET}      安装 Debian Cloud 内核"
-            echo -e "${GREEN} 16${RESET}      卸载 Debian Cloud 内核"
+            echo -e "${GREEN} 16${RESET}      安装 Debian Cloud 内核"
+            echo -e "${GREEN} 17${RESET}      卸载 Debian Cloud 内核"
         fi
     fi
 
@@ -1229,18 +1249,19 @@ handle_choice() {
         2) add_public_keys ;;
         3) disable_ssh_password_login ;;
         4) modify_ssh_port ;;
-        5) set_firewall_ports ;;
-        6) set_virtual_memory ;;
-        7) configure_zram_menu ;;
-        8) modify_swap_usage_threshold ;;
-        9) cleanup_swap ;;
-        10) optimize_kernel_parameters ;;
-        11) add_docker_tools ;;
-        12) set_dns_dhclient ;;
-        13) [[ "$OS_TYPE" == "Debian/Ubuntu" ]] && install_xanmod_kernel || echo "此选项仅适用于 Debian/Ubuntu" ;;
-        14) [[ "$OS_TYPE" == "Debian/Ubuntu" ]] && uninstall_xanmod_kernel || echo "此选项仅适用于 Debian/Ubuntu" ;;
-        15) [[ $(grep -i "debian" /etc/os-release) ]] && install_debian_cloud_kernel || echo "此选项仅适用于 Debian" ;;
-        16) [[ $(grep -i "debian" /etc/os-release) ]] && uninstall_debian_cloud_kernel || echo "此选项仅适用于 Debian" ;;
+        5) configure_fail2ban ;;
+        6) set_firewall_ports ;;
+        7) set_virtual_memory ;;
+        8) configure_zram_menu ;;
+        9) modify_swap_usage_threshold ;;
+        10) cleanup_swap ;;
+        11) optimize_kernel_parameters ;;
+        12) add_docker_tools ;;
+        13) set_dns_dhclient ;;
+        14) [[ "$OS_TYPE" == "Debian/Ubuntu" ]] && install_xanmod_kernel || echo "此选项仅适用于 Debian/Ubuntu" ;;
+        15) [[ "$OS_TYPE" == "Debian/Ubuntu" ]] && uninstall_xanmod_kernel || echo "此选项仅适用于 Debian/Ubuntu" ;;
+        16) [[ $(grep -i "debian" /etc/os-release) ]] && install_debian_cloud_kernel || echo "此选项仅适用于 Debian" ;;
+        17) [[ $(grep -i "debian" /etc/os-release) ]] && uninstall_debian_cloud_kernel || echo "此选项仅适用于 Debian" ;;
         [qQ]) return 1 ;; # 返回非零值以退出主循环
         *) echo "无效的选项，请输入正确的数字。" ;;
     esac
