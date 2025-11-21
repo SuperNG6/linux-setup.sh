@@ -256,7 +256,7 @@ display_open_ports() {
 
 # 安装常用基础组件
 install_components() {
-    echo "此操作将安装: docker, docker-compose, fail2ban, vim, curl, rsync,, jq"
+    echo "此操作将安装: docker, docker-compose, fail2ban, vim, chrony, curl, rsync,, jq"
     read -p "是否继续？(y/n): " choice
 
     if [[ "$choice" != "y" && "$choice" != "Y" ]]; then
@@ -302,11 +302,8 @@ install_components() {
     echo "正在更新软件包列表..."
     $update_cmd || { echo "更新软件包列表失败"; return 1; }
 
-    echo "正在安装 fail2ban vim curl rsync jq..."
-    $install_cmd fail2ban vim curl rsync jq || { echo "安装基础组件失败"; return 1; }
-
-    echo "校准系统时间..."
-    ntpdate time.apple.com
+    echo "正在安装 fail2ban chrony vim curl rsync jq..."
+    $install_cmd fail2ban chrony vim curl rsync jq || { echo "安装基础组件失败"; return 1; }
 
     echo "其他组件安装成功，现在开始安装 Docker 和 Docker Compose。"
 
