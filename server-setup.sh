@@ -305,6 +305,9 @@ install_components() {
     echo "正在安装 fail2ban chrony vim curl rsync jq..."
     $install_cmd fail2ban chrony vim curl rsync jq || { echo "安装基础组件失败"; return 1; }
 
+    echo "校准系统时间..."
+    chronyc tracking
+
     echo "其他组件安装成功，现在开始安装 Docker 和 Docker Compose。"
 
     # 使用加速镜像（如果已设置）安装 Docker
