@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Linux Setup.sh - 智能化服务器配置工具</title>
+    <meta name="description" content="模块化、跨发行版的 Linux 服务器自动化配置工具包。智能网络优化、统一防火墙管理、一键安装配置。">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Fira+Code:wght@400;500;600&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Background Effects -->
+    <div class="bg-grid"></div>
+    <div class="bg-gradient-orb orb-1"></div>
+    <div class="bg-gradient-orb orb-2"></div>
+
+    <!-- Navigation -->
+    <nav class="nav">
+        <div class="container nav-container">
+            <div class="nav-brand">
+                <span class="terminal-prompt">$</span>
+                <span class="brand-text">linux-setup.sh</span>
+            </div>
+            <div class="nav-links">
+                <a href="#features" class="nav-link">功能特性</a>
+                <a href="#architecture" class="nav-link">系统架构</a>
+                <a href="#quick-start" class="nav-link">快速开始</a>
+                <a href="#tutorial" class="nav-link">使用教程</a>
+                <a href="https://github.com/SuperNG6/linux-setup.sh" target="_blank" class="nav-link nav-link-github">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                    </svg>
+                    GitHub
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="container">
+            <div class="hero-content">
+                <div class="hero-badge">
+                    <span class="badge-dot"></span>
+                    <span>开源 · 免费 · 模块化</span>
+                </div>
+
+                <h1 class="hero-title">
+                    <span class="title-line">智能化的</span>
+                    <span class="title-line title-highlight">Linux 服务器</span>
+                    <span class="title-line">配置工具箱</span>
+                </h1>
+
+                <p class="hero-description">
+                    一个为自己编写，并持续迭代的服务器自动化工具箱<br>
+                    环境自适应 · 性能优化 · 模块化自动化<br>
+                    解决每次配置新服务器时，重复执行大量相同命令的烦恼
+                </p>
+
+                <div class="hero-terminal">
+                    <div class="terminal-header">
+                        <div class="terminal-buttons">
+                            <span class="terminal-btn terminal-btn-close"></span>
+                            <span class="terminal-btn terminal-btn-minimize"></span>
+                            <span class="terminal-btn terminal-btn-maximize"></span>
+                        </div>
+                        <div class="terminal-title">bash</div>
+                    </div>
+                    <div class="terminal-body">
+                        <div class="terminal-line">
+                            <span class="terminal-prompt">root@server:~#</span>
+                            <span class="terminal-command" id="typed-command"></span>
+                            <span class="terminal-cursor">█</span>
+                        </div>
+                        <div class="terminal-output" id="terminal-output"></div>
+                    </div>
+                </div>
+
+                <div class="hero-stats">
+                    <div class="stat-item">
+                        <div class="stat-value">3,800+</div>
+                        <div class="stat-label">代码行数</div>
+                    </div>
+                    <div class="stat-divider"></div>
+                    <div class="stat-item">
+                        <div class="stat-value">17</div>
+                        <div class="stat-label">功能模块</div>
+                    </div>
+                    <div class="stat-divider"></div>
+                    <div class="stat-item">
+                        <div class="stat-value">5</div>
+                        <div class="stat-label">发行版支持</div>
+                    </div>
+                    <div class="stat-divider"></div>
+                    <div class="stat-item">
+                        <div class="stat-value">4</div>
+                        <div class="stat-label">防火墙适配</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="features">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="section-number">01.</span>
+                    核心功能特性
+                </h2>
+                <p class="section-subtitle">模块化设计，每个功能都经过精心打磨</p>
+            </div>
+
+            <div class="features-grid">
+                <!-- Feature Card 1 -->
+                <div class="feature-card card-large">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                        </svg>
+                    </div>
+                    <h3 class="feature-title">智能网络优化</h3>
+                    <p class="feature-description">
+                        基于 BDP（带宽延迟积）的动态缓冲区计算，自动优化 TCP/UDP 参数。
+                        区分下载/上传策略，为代理服务器和高速网络环境量身定制。
+                    </p>
+                    <div class="feature-tags">
+                        <span class="tag">BBR 拥塞控制</span>
+                        <span class="tag">动态缓冲区</span>
+                        <span class="tag">QUIC 优化</span>
+                    </div>
+                </div>
+
+                <!-- Feature Card 2 -->
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                        </svg>
+                    </div>
+                    <h3 class="feature-title">统一防火墙管理</h3>
+                    <p class="feature-description">
+                        自适应 UFW、Firewalld、iptables、nftables 四种防火墙工具，提供统一的管理接口。
+                    </p>
+                </div>
+
+                <!-- Feature Card 3 -->
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
+                            <line x1="9" y1="9" x2="9.01" y2="9"></line>
+                            <line x1="15" y1="9" x2="15.01" y2="9"></line>
+                        </svg>
+                    </div>
+                    <h3 class="feature-title">Fail2ban 防护</h3>
+                    <p class="feature-description">
+                        完整的 SSH 防暴力破解方案，自动检测日志配置，支持手动封禁和实时监控。
+                    </p>
+                </div>
+
+                <!-- Feature Card 4 -->
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
+                            <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
+                        </svg>
+                    </div>
+                    <h3 class="feature-title">内存管理优化</h3>
+                    <p class="feature-description">
+                        智能 Swap/ZRAM 配置，根据内存大小动态调整参数，支持多种压缩算法。
+                    </p>
+                </div>
+
+                <!-- Feature Card 5 -->
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 12h-4l-3 9L9 3l-3 9H2"></path>
+                        </svg>
+                    </div>
+                    <h3 class="feature-title">XanMod 内核</h3>
+                    <p class="feature-description">
+                        自动检测 CPU 指令集，从 SourceForge 获取最新版本，支持 x86-64-v2/v3/v4。
+                    </p>
+                </div>
+
+                <!-- Feature Card 6 -->
+                <div class="feature-card card-accent">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                            <line x1="8" y1="21" x2="16" y2="21"></line>
+                            <line x1="12" y1="17" x2="12" y2="21"></line>
+                        </svg>
+                    </div>
+                    <h3 class="feature-title">Docker 工具箱</h3>
+                    <p class="feature-description">
+                        10+ 个便捷脚本，包括容器管理、日志查看、IP 映射等，大幅提升 Docker 使用效率。
+                    </p>
+                    <div class="feature-tags">
+                        <span class="tag">dc</span>
+                        <span class="tag">dlogs</span>
+                        <span class="tag">dexec</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Architecture Section -->
+    <section id="architecture" class="architecture">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="section-number">02.</span>
+                    系统架构设计
+                </h2>
+                <p class="section-subtitle">分层设计，职责清晰，易于维护和扩展</p>
+            </div>
+
+            <div class="architecture-diagram">
+                <div class="arch-layer">
+                    <div class="layer-label">用户交互层</div>
+                    <div class="layer-content">
+                        <div class="arch-block">交互式菜单系统</div>
+                    </div>
+                </div>
+
+                <div class="arch-connector">
+                    <div class="connector-line"></div>
+                    <div class="connector-arrow">▼</div>
+                </div>
+
+                <div class="arch-layer">
+                    <div class="layer-label">调度层</div>
+                    <div class="layer-content">
+                        <div class="arch-block">环境检测</div>
+                        <div class="arch-block">镜像配置</div>
+                        <div class="arch-block">功能路由</div>
+                    </div>
+                </div>
+
+                <div class="arch-connector">
+                    <div class="connector-line"></div>
+                    <div class="connector-arrow">▼</div>
+                </div>
+
+                <div class="arch-layer">
+                    <div class="layer-label">功能层</div>
+                    <div class="layer-content layer-grid">
+                        <div class="arch-block block-small">内核优化</div>
+                        <div class="arch-block block-small">Fail2ban</div>
+                        <div class="arch-block block-small">XanMod</div>
+                        <div class="arch-block block-small">Docker 工具</div>
+                        <div class="arch-block block-small">DNS 配置</div>
+                    </div>
+                </div>
+
+                <div class="arch-connector">
+                    <div class="connector-line"></div>
+                    <div class="connector-arrow">▼</div>
+                </div>
+
+                <div class="arch-layer">
+                    <div class="layer-label">适配层</div>
+                    <div class="layer-content">
+                        <div class="arch-block">防火墙适配器</div>
+                        <div class="arch-block">包管理器抽象</div>
+                    </div>
+                </div>
+
+                <div class="arch-connector">
+                    <div class="connector-line"></div>
+                    <div class="connector-arrow">▼</div>
+                </div>
+
+                <div class="arch-layer">
+                    <div class="layer-label">系统层</div>
+                    <div class="layer-content layer-grid">
+                        <div class="arch-block block-small">iptables</div>
+                        <div class="arch-block block-small">apt/yum</div>
+                        <div class="arch-block block-small">systemctl</div>
+                        <div class="arch-block block-small">sysctl</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="architecture-features">
+                <div class="arch-feature">
+                    <div class="arch-feature-icon">🎯</div>
+                    <div class="arch-feature-title">适配器模式</div>
+                    <div class="arch-feature-desc">统一防火墙和包管理器接口</div>
+                </div>
+                <div class="arch-feature">
+                    <div class="arch-feature-icon">🔄</div>
+                    <div class="arch-feature-title">策略模式</div>
+                    <div class="arch-feature-desc">根据环境选择执行策略</div>
+                </div>
+                <div class="arch-feature">
+                    <div class="arch-feature-icon">📦</div>
+                    <div class="arch-feature-title">模块化设计</div>
+                    <div class="arch-feature-desc">功能独立，低耦合高内聚</div>
+                </div>
+                <div class="arch-feature">
+                    <div class="arch-feature-icon">🛡️</div>
+                    <div class="arch-feature-title">健壮性保证</div>
+                    <div class="arch-feature-desc">自动备份、失败回滚、幂等操作</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Quick Start Section -->
+    <section id="quick-start" class="quick-start">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="section-number">03.</span>
+                    快速开始
+                </h2>
+                <p class="section-subtitle">一行命令，立即使用</p>
+            </div>
+
+            <div class="quick-start-content">
+                <div class="install-card">
+                    <div class="install-header">
+                        <h3 class="install-title">运行主脚本</h3>
+                        <p class="install-desc">请使用 root 或具有 sudo 权限的用户执行</p>
+                    </div>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-lang">bash</span>
+                            <button class="code-copy" onclick="copyCode(this, '/bin/bash <(wget -qO - https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/server-setup.sh)')">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                </svg>
+                                <span>复制</span>
+                            </button>
+                        </div>
+                        <pre class="code-content"><code>/bin/bash <(wget -qO - https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/server-setup.sh)</code></pre>
+                    </div>
+
+                    <div class="install-alternatives">
+                        <h4 class="alternatives-title">备用链接与国内加速</h4>
+                        <div class="alternatives-grid">
+                            <div class="alternative-item">
+                                <div class="alternative-label">短链接 1</div>
+                                <div class="alternative-code">
+                                    <code>bit.ly/ls-set</code>
+                                    <button class="copy-btn-small" onclick="copyCode(this, '/bin/bash <(wget -qO - bit.ly/ls-set)')">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="alternative-item">
+                                <div class="alternative-label">短链接 2</div>
+                                <div class="alternative-code">
+                                    <code>tinyurl.com/server-setup</code>
+                                    <button class="copy-btn-small" onclick="copyCode(this, '/bin/bash <(wget -qO - https://tinyurl.com/server-setup)')">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="alternative-item alternative-highlight">
+                                <div class="alternative-label">🇨🇳 国内加速</div>
+                                <div class="alternative-code">
+                                    <code>mirror.ghproxy.com/...</code>
+                                    <button class="copy-btn-small" onclick="copyCode(this, '/bin/bash <(wget -qO - https://mirror.ghproxy.com/https://raw.githubusercontent.com/SuperNG6/linux-setup.sh/main/server-setup.sh)')">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="install-steps">
+                    <div class="step-item">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <h4 class="step-title">环境检测</h4>
+                            <p class="step-desc">自动识别操作系统、防火墙类型和地理位置</p>
+                        </div>
+                    </div>
+                    <div class="step-connector"></div>
+                    <div class="step-item">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <h4 class="step-title">选择功能</h4>
+                            <p class="step-desc">通过交互式菜单选择需要配置的功能模块</p>
+                        </div>
+                    </div>
+                    <div class="step-connector"></div>
+                    <div class="step-item">
+                        <div class="step-number">3</div>
+                        <div class="step-content">
+                            <h4 class="step-title">自动配置</h4>
+                            <p class="step-desc">脚本自动完成安装和配置，无需人工干预</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="supported-systems">
+                    <h3 class="supported-title">支持的系统</h3>
+                    <div class="systems-grid">
+                        <div class="system-item">
+                            <div class="system-icon">🐧</div>
+                            <div class="system-name">Debian / Ubuntu</div>
+                        </div>
+                        <div class="system-item">
+                            <div class="system-icon">🎩</div>
+                            <div class="system-name">CentOS / RHEL</div>
+                        </div>
+                        <div class="system-item">
+                            <div class="system-icon">🔷</div>
+                            <div class="system-name">Fedora</div>
+                        </div>
+                        <div class="system-item">
+                            <div class="system-icon">🏔️</div>
+                            <div class="system-name">Arch Linux</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Tutorial Section -->
+    <section id="tutorial" class="tutorial">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="section-number">04.</span>
+                    使用教程
+                </h2>
+                <p class="section-subtitle">详细的功能使用指南</p>
+            </div>
+
+            <div class="tutorial-content">
+                <!-- Docker Tools Tutorial -->
+                <div class="tutorial-category">
+                    <div class="category-header">
+                        <div class="category-icon">🐳</div>
+                        <h3 class="category-title">Docker 工具箱使用说明</h3>
+                    </div>
+                    <p class="category-description">
+                        安装后将在 <code>~/.docker_tools/</code> 目录添加便捷脚本，并自动配置 shell 别名。
+                    </p>
+
+                    <div class="commands-table">
+                        <div class="command-row command-header">
+                            <div class="command-name">命令</div>
+                            <div class="command-original">原始命令</div>
+                            <div class="command-desc">功能说明</div>
+                        </div>
+
+                        <div class="command-row">
+                            <div class="command-name"><code>dc</code></div>
+                            <div class="command-original"><code>docker-compose</code></div>
+                            <div class="command-desc">docker-compose 的缩写，核心提效工具</div>
+                        </div>
+
+                        <div class="command-row">
+                            <div class="command-name"><code>dlogs &lt;容器&gt;</code></div>
+                            <div class="command-original"><code>docker logs -f &lt;容器&gt;</code></div>
+                            <div class="command-desc">实时追踪指定容器的日志</div>
+                        </div>
+
+                        <div class="command-row">
+                            <div class="command-name"><code>dclogs &lt;服务&gt;</code></div>
+                            <div class="command-original"><code>docker-compose logs -f &lt;服务&gt;</code></div>
+                            <div class="command-desc">实时追踪指定 Compose 服务的日志</div>
+                        </div>
+
+                        <div class="command-row">
+                            <div class="command-name"><code>dcps</code></div>
+                            <div class="command-original"><code>docker-compose stats</code></div>
+                            <div class="command-desc">查看 Compose 项目中各个服务的 CPU/RAM 使用情况</div>
+                        </div>
+
+                        <div class="command-row">
+                            <div class="command-name"><code>dr &lt;容器&gt;</code></div>
+                            <div class="command-original"><code>docker restart &lt;容器&gt;</code></div>
+                            <div class="command-desc">快速重启单个 Docker 容器</div>
+                        </div>
+
+                        <div class="command-row">
+                            <div class="command-name"><code>dcr [-r/-R] &lt;服务&gt;</code></div>
+                            <div class="command-original"><code>docker-compose restart/up</code></div>
+                            <div class="command-desc">重启 Compose 服务。<code>-r</code> 普通重启，<code>-R</code> 强制重建</div>
+                        </div>
+
+                        <div class="command-row">
+                            <div class="command-name"><code>dexec &lt;容器&gt;</code></div>
+                            <div class="command-original"><code>docker exec -it &lt;容器&gt; bash</code></div>
+                            <div class="command-desc">快速进入指定容器的 Shell 环境，方便调试</div>
+                        </div>
+
+                        <div class="command-row">
+                            <div class="command-name"><code>dspa</code></div>
+                            <div class="command-original"><code>docker system prune -af</code></div>
+                            <div class="command-desc">一键清理所有不再使用的镜像、容器、网络</div>
+                        </div>
+
+                        <div class="command-row command-highlight">
+                            <div class="command-name"><code>dcip</code></div>
+                            <div class="command-original"><em>自定义函数</em></div>
+                            <div class="command-desc">遍历所有容器 IP，自动添加到 /etc/hosts，可通过容器名直接访问</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Main Features Tutorial -->
+                <div class="tutorial-category">
+                    <div class="category-header">
+                        <div class="category-icon">⚙️</div>
+                        <h3 class="category-title">主要功能详解</h3>
+                    </div>
+
+                    <div class="features-tutorial-grid">
+                        <div class="tutorial-card">
+                            <div class="tutorial-card-header">
+                                <span class="tutorial-icon">🚀</span>
+                                <h4>优化内核参数</h4>
+                            </div>
+                            <div class="tutorial-card-body">
+                                <p>脚本会引导你输入服务器的实际延迟和带宽，<strong>动态计算带宽延迟积（BDP）</strong>，为每台服务器量身定制 TCP 缓冲区大小。</p>
+                                <ul class="tutorial-list">
+                                    <li>启用 BBR+FQ 拥塞控制</li>
+                                    <li>优化 TCP/UDP 缓冲区</li>
+                                    <li>根据内存大小调整脏页参数</li>
+                                    <li>支持 QUIC/Hysteria2 等协议</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div class="tutorial-card">
+                            <div class="tutorial-card-header">
+                                <span class="tutorial-icon">🔥</span>
+                                <h4>统一防火墙管理</h4>
+                            </div>
+                            <div class="tutorial-card-body">
+                                <p>自动识别并适配 UFW、Firewalld、iptables、nftables 四种防火墙工具。</p>
+                                <ul class="tutorial-list">
+                                    <li>统一的端口开放/关闭接口</li>
+                                    <li>查看当前开放端口</li>
+                                    <li>自动持久化配置</li>
+                                    <li>无需记忆不同防火墙命令</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div class="tutorial-card">
+                            <div class="tutorial-card-header">
+                                <span class="tutorial-icon">⚙️</span>
+                                <h4>XanMod 内核管理</h4>
+                            </div>
+                            <div class="tutorial-card-body">
+                                <p>全自动从官网发现、下载并匹配最适合你 CPU 的内核版本。</p>
+                                <ul class="tutorial-list">
+                                    <li>自动检测 CPU 指令集（x86-64-v2/v3/v4）</li>
+                                    <li>从 SourceForge 获取最新 LTS 版本</li>
+                                    <li>支持优雅降级（v4→v3）</li>
+                                    <li>仅限 Debian/Ubuntu 系统</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div class="tutorial-card">
+                            <div class="tutorial-card-header">
+                                <span class="tutorial-icon">🛡️</span>
+                                <h4>SSH 安全加固</h4>
+                            </div>
+                            <div class="tutorial-card-body">
+                                <p>多层安全防护，抵御暴力破解和未授权访问。</p>
+                                <ul class="tutorial-list">
+                                    <li>添加 SSH 公钥实现免密登录</li>
+                                    <li>关闭密码登录（仅密钥认证）</li>
+                                    <li>修改 SSH 默认端口</li>
+                                    <li>配置 Fail2ban 自动封禁</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div class="tutorial-card">
+                            <div class="tutorial-card-header">
+                                <span class="tutorial-icon">⚡</span>
+                                <h4>内存优化方案</h4>
+                            </div>
+                            <div class="tutorial-card-body">
+                                <p>根据服务器实际情况选择最佳的内存管理策略。</p>
+                                <ul class="tutorial-list">
+                                    <li>设置 Swap 交换分区</li>
+                                    <li>配置 ZRAM 压缩内存</li>
+                                    <li>调整 Swappiness 值</li>
+                                    <li>清理 Swap 缓存</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div class="tutorial-card">
+                            <div class="tutorial-card-header">
+                                <span class="tutorial-icon">🌐</span>
+                                <h4>网络环境配置</h4>
+                            </div>
+                            <div class="tutorial-card-body">
+                                <p>优化 DNS 解析和网络连接质量。</p>
+                                <ul class="tutorial-list">
+                                    <li>配置公共 DNS（Cloudflare/Google）</li>
+                                    <li>国内环境自动使用镜像加速</li>
+                                    <li>支持 dhclient 方式配置</li>
+                                    <li>自动验证配置是否生效</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tips and Notes -->
+                <div class="tutorial-tips">
+                    <div class="tip-card tip-warning">
+                        <div class="tip-icon">⚠️</div>
+                        <div class="tip-content">
+                            <h4 class="tip-title">注意事项</h4>
+                            <ul class="tip-list">
+                                <li><strong>权限要求：</strong>脚本需要 root 权限才能进行系统级修改</li>
+                                <li><strong>安全操作：</strong>修改 SSH 端口、禁用密码登录等操作不可逆，请确保已有可靠的连接方式</li>
+                                <li><strong>备份重要数据：</strong>建议在执行重要操作前先备份配置文件</li>
+                                <li><strong>测试环境：</strong>建议先在测试环境验证功能，再应用到生产环境</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div class="tip-card tip-info">
+                        <div class="tip-icon">💡</div>
+                        <div class="tip-content">
+                            <h4 class="tip-title">使用技巧</h4>
+                            <ul class="tip-list">
+                                <li><strong>逐步配置：</strong>建议按功能逐个配置，便于排查问题</li>
+                                <li><strong>查看日志：</strong>配置后检查系统日志，确认服务正常运行</li>
+                                <li><strong>性能监控：</strong>使用 <code>htop</code>、<code>iotop</code> 等工具监控优化效果</li>
+                                <li><strong>定期更新：</strong>定期运行脚本更新组件到最新版本</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-brand">
+                    <div class="footer-logo">
+                        <span class="terminal-prompt">$</span>
+                        <span class="brand-text">linux-setup.sh</span>
+                    </div>
+                    <p class="footer-tagline">让 Linux 服务器配置更简单、更智能</p>
+                </div>
+
+                <div class="footer-links">
+                    <div class="footer-section">
+                        <h4 class="footer-heading">项目</h4>
+                        <a href="https://github.com/SuperNG6/linux-setup.sh" class="footer-link">GitHub 仓库</a>
+                        <a href="https://github.com/SuperNG6/linux-setup.sh/issues" class="footer-link">问题反馈</a>
+                        <a href="https://github.com/SuperNG6/linux-setup.sh/blob/main/README.md" class="footer-link">文档</a>
+                    </div>
+
+                    <div class="footer-section">
+                        <h4 class="footer-heading">资源</h4>
+                        <a href="#features" class="footer-link">功能特性</a>
+                        <a href="#architecture" class="footer-link">系统架构</a>
+                        <a href="#quick-start" class="footer-link">快速开始</a>
+                        <a href="#tutorial" class="footer-link">使用教程</a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="footer-bottom">
+                <p class="footer-copyright">
+                    © 2024 Linux Setup.sh · 开源项目，MIT 协议
+                </p>
+                <div class="footer-social">
+                    <a href="https://github.com/SuperNG6/linux-setup.sh" class="social-link" target="_blank">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                        </svg>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>
