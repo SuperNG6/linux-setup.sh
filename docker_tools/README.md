@@ -95,6 +95,8 @@ dexec '1. container-name'
 
 编号顺序与 `docker ps --format '{{.Names}}'` 的输出顺序一致。
 
+补全功能只在 bash 中加载。群晖默认 `sh` 下可以正常使用 `dlogs` / `dexec` 命令，但不会加载 Tab 补全。
+
 ## 注意
 
 - 这些函数默认通过 `sudo docker` 和 `sudo docker-compose` 执行。

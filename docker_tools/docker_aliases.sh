@@ -22,7 +22,7 @@ FUNCTIONS_FILE="/volume5/docker/docker_tools/docker_functions.sh"
 # 加载功能函数库
 if [ -f "$FUNCTIONS_FILE" ]; then
     # shellcheck disable=SC1090
-    source "$FUNCTIONS_FILE"
+    . "$FUNCTIONS_FILE"
 else
     echo "警告: Docker 功能函数库未找到: $FUNCTIONS_FILE"
     return
@@ -58,25 +58,26 @@ alias dspa='sudo docker system prune -a' # 清理所有未使用的 Docker 资�
 alias dps='sudo docker ps -a'
 alias di='sudo docker images'
 
+if [ -n "${BASH_VERSION:-}" ] && command -v complete >/dev/null 2>&1; then
+    eval '
 _docker_tools_container_names() {
     local current="${COMP_WORDS[COMP_CWORD]}"
-    local containers=()
-    local i name candidate index
-    while IFS= read -r name; do
-        [ -n "$name" ] && containers+=("$name")
-    done < <(docker ps --format '{{.Names}}' 2>/dev/null || sudo -n docker ps --format '{{.Names}}' 2>/dev/null)
+    local container_list name candidate index
+    container_list=$(docker ps --format "{{.Names}}" 2>/dev/null || sudo -n docker ps --format "{{.Names}}" 2>/dev/null)
     compopt -o nosort 2>/dev/null || true
     COMPREPLY=()
-    for i in "${!containers[@]}"; do
-        index=$((i + 1))
-        name="${containers[$i]}"
+    index=1
+    for name in $container_list; do
         candidate="${index}. ${name}"
         if [ -z "$current" ] || [[ "$candidate" == "$current"* ]] || [[ "$name" == "$current"* ]] || [[ "$index" == "$current"* ]]; then
             COMPREPLY+=("$candidate")
         fi
+        index=$((index + 1))
     done
 }
 
 complete -F _docker_tools_container_names dlogs dexec
+'
+fi
 
 # echo "Docker 工具别名已加载。"
