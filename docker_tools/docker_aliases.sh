@@ -60,30 +60,71 @@ alias di='sudo docker images'
 
 if [ -n "${BASH_VERSION:-}" ] && command -v complete >/dev/null 2>&1; then
     eval '
-_docker_tools_container_names() {
-    local current="${COMP_WORDS[COMP_CWORD]}"
-    local container_list name candidate index
-    container_list=$(docker ps --format "{{.Names}}" 2>/dev/null || true)
-    if [ -z "$container_list" ]; then
+_DOCKER_TOOLS_COMPLETION_USE_SUDO=0
+_DOCKER_TOOLS_COMPLETION_JUST_AUTH=0
+_DOCKER_TOOLS_CONTAINER_LIST=""
+
+_docker_tools_load_container_list() {
+    _DOCKER_TOOLS_COMPLETION_JUST_AUTH=0
+    _DOCKER_TOOLS_CONTAINER_LIST=""
+
+    if [ "${_DOCKER_TOOLS_COMPLETION_USE_SUDO:-0}" != "1" ]; then
+        _DOCKER_TOOLS_CONTAINER_LIST=$(docker ps --format "{{.Names}}" 2>/dev/null || true)
+        if [ -n "$_DOCKER_TOOLS_CONTAINER_LIST" ]; then
+            return 0
+        fi
+    fi
+
+    if sudo -n true 2>/dev/null; then
+        _DOCKER_TOOLS_COMPLETION_USE_SUDO=1
+    else
         if tty >/dev/null 2>&1; then
             printf "\n需要 sudo 权限获取 Docker 容器列表，请输入密码。\n" >/dev/tty
         fi
         if sudo -v; then
-            container_list=$(sudo docker ps --format "{{.Names}}" 2>/dev/null || true)
+            _DOCKER_TOOLS_COMPLETION_USE_SUDO=1
+            _DOCKER_TOOLS_COMPLETION_JUST_AUTH=1
         else
-            return 0
+            return 1
         fi
     fi
+
+    _DOCKER_TOOLS_CONTAINER_LIST=$(sudo docker ps --format "{{.Names}}" 2>/dev/null || true)
+    return 0
+}
+
+_docker_tools_print_completion_candidates() {
+    local candidates="$1"
+    if [ -n "$candidates" ]; then
+        printf "\n%s\n" "$candidates" >/dev/tty 2>/dev/null || true
+    fi
+}
+
+_docker_tools_container_names() {
+    local current="${COMP_WORDS[COMP_CWORD]}"
+    local name candidate index candidates
+    _docker_tools_load_container_list || return 0
     compopt -o nosort 2>/dev/null || true
     COMPREPLY=()
+    candidates=""
     index=1
-    for name in $container_list; do
+    for name in $_DOCKER_TOOLS_CONTAINER_LIST; do
         candidate="${index}. ${name}"
         if [ -z "$current" ] || [[ "$candidate" == "$current"* ]] || [[ "$name" == "$current"* ]] || [[ "$index" == "$current"* ]]; then
             COMPREPLY+=("$candidate")
+            if [ -z "$candidates" ]; then
+                candidates="$candidate"
+            else
+                candidates="${candidates}
+${candidate}"
+            fi
         fi
         index=$((index + 1))
     done
+    if [ "${_DOCKER_TOOLS_COMPLETION_JUST_AUTH:-0}" = "1" ]; then
+        _docker_tools_print_completion_candidates "$candidates"
+        COMPREPLY=()
+    fi
 }
 
 complete -F _docker_tools_container_names dlogs dexec

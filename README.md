@@ -13,7 +13,7 @@
 | 容器名补全 | `dlogs` 和 `dexec` 支持 Tab 补全，候选格式为 `1. 容器名` |
 | 编号输入 | `dlogs 1`、`dexec 1` 可以直接选择 `docker ps` 列表里的第 1 个容器 |
 | Hosts 更新 | 将运行中容器 IP 写入 `/etc/hosts`，方便用容器名访问 |
-| sudo 兼容 | 命令默认使用 `sudo docker` / `sudo docker-compose`，补全首次需要权限时会触发 sudo 密码输入 |
+| sudo 兼容 | 命令默认使用 `sudo docker` / `sudo docker-compose`，补全首次需要权限时会触发 sudo 密码输入并打印候选 |
 
 ## 文件
 
@@ -77,7 +77,7 @@ fi
 | :--- | :--- |
 | `dlogs <Tab>` | 补全运行中的容器，候选格式为 `1. 容器名` |
 | `dexec <Tab>` | 补全运行中的容器，候选格式为 `1. 容器名` |
-| 第一次 Tab 时没有 Docker 权限 | 触发 `sudo -v`，输入密码后再生成补全候选 |
+| 第一次 Tab 时没有 Docker 权限 | 触发 `sudo -v`，输入密码后立即打印候选；后续 Tab 使用 sudo 缓存，不再重复提示 |
 | `dlogs 1` | 使用 `docker ps --format '{{.Names}}'` 输出里的第 1 个容器 |
 | `dlogs '1. 容器名'` | 支持直接使用补全候选文本执行命令 |
 | `dexec 1` | 使用 `docker ps --format '{{.Names}}'` 输出里的第 1 个容器 |
