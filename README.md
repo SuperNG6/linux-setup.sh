@@ -1,8 +1,6 @@
 # Synology Docker Tools
 
-群晖 NAS 使用的 Docker / Docker Compose 快捷命令工具。
-
-这个分支只放群晖版 Docker 工具代码，脚本目录是 `docker_tools/`。默认安装路径是 `/volume5/docker/docker_tools`。
+群晖 NAS Docker / Docker Compose 快捷命令工具。
 
 ## 功能
 
