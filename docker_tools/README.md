@@ -100,5 +100,5 @@ dexec '1. container-name'
 ## 注意
 
 - 这些函数默认通过 `sudo docker` 和 `sudo docker-compose` 执行。
-- Tab 补全会先尝试 `docker ps`，失败后再尝试 `sudo -n docker ps`，避免补全时卡在 sudo 密码输入。
+- Tab 补全会先尝试 `docker ps`；如果当前用户无权限，会触发 `sudo -v` 让你输入密码，然后再用 `sudo docker ps` 生成候选。
 - `docker_aliases.sh` 是给 bash `source` 的，不建议直接执行。

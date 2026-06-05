@@ -63,7 +63,17 @@ if [ -n "${BASH_VERSION:-}" ] && command -v complete >/dev/null 2>&1; then
 _docker_tools_container_names() {
     local current="${COMP_WORDS[COMP_CWORD]}"
     local container_list name candidate index
-    container_list=$(docker ps --format "{{.Names}}" 2>/dev/null || sudo -n docker ps --format "{{.Names}}" 2>/dev/null)
+    container_list=$(docker ps --format "{{.Names}}" 2>/dev/null || true)
+    if [ -z "$container_list" ]; then
+        if tty >/dev/null 2>&1; then
+            printf "\n需要 sudo 权限获取 Docker 容器列表，请输入密码。\n" >/dev/tty
+        fi
+        if sudo -v; then
+            container_list=$(sudo docker ps --format "{{.Names}}" 2>/dev/null || true)
+        else
+            return 0
+        fi
+    fi
     compopt -o nosort 2>/dev/null || true
     COMPREPLY=()
     index=1
