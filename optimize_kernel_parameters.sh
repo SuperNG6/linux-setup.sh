@@ -8,51 +8,71 @@
 #   - 网络: 优化高带宽、高延迟的跨国网络 (如中美, 中日, 中欧等)
 #
 # 核心思路:
-#   1. TCP优化: 启用BBR+FQ，并根据BDP动态计算TCP缓冲区。
+#   1. TCP优化: 检测BBR+FQ，按较大方向三倍BDP计算收发上限，保留32/16MiB下限。
 #   2. UDP优化: 为QUIC协议(Hysteria2)提供足够大的系统级UDP缓冲区。
 #   3. 磁盘I/O优化: 优化脏页回写策略，避免I/O抖动影响网络服务。
 #   4. 基础安全: 加入基本的网络安全加固参数。
-#   5. 写入逻辑: 采用"先清理后追加"策略，确保配置不重复且带有逐行注释。
+#   5. 写入逻辑: 直接覆盖本次管理的参数；先应用，再原子保存，失败时恢复运行值及文件。
 #
+# 参数语义参考（容量倍数是本项目经验基线，不是内核文档推荐最优值）：
+# https://www.kernel.org/doc/html/v6.1/networking/ip-sysctl.html
+# https://www.kernel.org/doc/html/v6.1/admin-guide/sysctl/net.html
+# https://www.kernel.org/doc/html/v6.1/admin-guide/sysctl/vm.html
 # ===================================================================================
 
-optimize_kernel_parameters() {
+optimize_kernel_parameters() (
+    set -e
+    set -o pipefail
+    export LC_ALL=C
+    if [ "$(uname -s)" != Linux ] || [ "$(id -u)" -ne 0 ]; then
+        echo "[错误] 请在Linux服务器上以root运行。"
+        return 1
+    fi
     is_positive_number() {
-        [[ "$1" =~ ^[0-9]+([.][0-9]+)?$ ]] && awk "BEGIN {exit !($1 > 0)}"
+        [[ "$1" =~ ^[0-9]{1,6}([.][0-9]{1,3})?$ ]] &&
+            awk -v n="$1" 'BEGIN {exit !(n > 0 && n <= 100000)}'
     }
 
     # 确认操作
-    read -p "您确定要优化Linux内核网络与内存参数吗？这将修改 '/etc/sysctl.conf'。 (y/n): " choice
+    read -r -p "您确定要优化Linux内核网络与内存参数吗？这将修改 '/etc/sysctl.conf'。 (y/n): " choice
     case "$choice" in
         [Yy]*)
             echo "--> 操作确认，开始网络&内存优化..."
             ;;
         *)
             echo "--> 操作已取消。"
-            exit 0
+            return 0
             ;;
     esac
 
-    # --- 步骤 1: 备份原始配置文件 ---
-    backup_file=""
-    if [ -f /etc/sysctl.conf ]; then
-        backup_file="/etc/sysctl.conf.bak.$(date +%Y%m%d_%H%M%S)"
-        echo "--> 正在备份当前配置到: ${backup_file}"
-        cp /etc/sysctl.conf "${backup_file}"
+    # --- 步骤 1: 确认配置文件；输入校验完成后再备份 ---
+    if [ -L /etc/sysctl.conf ]; then
+        echo "[错误] /etc/sysctl.conf是符号链接，请先确认其管理方式。"
+        return 1
     fi
 
     # --- 步骤 2: 检测系统内存 ---
     echo "--> 正在检测系统内存..."
     mem_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+    if [[ ! "$mem_kb" =~ ^[0-9]+$ ]] || [ "$mem_kb" -eq 0 ]; then
+        echo "[错误] 无法读取系统内存。"
+        return 1
+    fi
+    page_size=$(getconf PAGESIZE)
+    if [[ ! "$page_size" =~ ^[0-9]+$ ]] || [ "$page_size" -lt 4096 ]; then
+        echo "[错误] 无法读取有效页大小。"
+        return 1
+    fi
     mem_mb=$((mem_kb / 1024))
     echo "    系统内存: ${mem_mb} MB"
 
     # --- 步骤 3: 获取用户网络环境信息 ---
-    read -p "--> 是否需要手动输入网络参数? [y/N]: " manual_input
+    echo "--> 填写客户端可持续吞吐与空闲RTT；客户端下行对应服务器发送。"
+    read -r -p "--> 是否需要手动输入网络参数? [y/N]: " manual_input
     if [[ $manual_input =~ ^[Yy]$ ]]; then
-        read -p "    请输入您的客户端到服务器的平均网络延迟 (RTT, 单位ms, 例如 170): " rtt
-        read -p "    请输入服务器的下载带宽 (单位Mbit/s, 例如 1000): " download_bw
-        read -p "    请输入服务器的上传带宽 (单位Mbit/s, 例如 100): " upload_bw
+        read -r -p "    请输入您的客户端到服务器的空闲网络延迟 (RTT, 单位ms, 例如 170): " rtt
+        read -r -p "    请输入客户端下行目标 (单位Mbit/s, 例如 1000): " download_bw
+        read -r -p "    请输入客户端上行目标 (单位Mbit/s, 例如 100): " upload_bw
     else
         rtt=170
         download_bw=1000
@@ -66,91 +86,56 @@ optimize_kernel_parameters() {
     : "${upload_bw:=100}"
 
     if ! is_positive_number "$rtt" || ! is_positive_number "$download_bw" || ! is_positive_number "$upload_bw"; then
-        echo "====== [错误] RTT、下载带宽、上传带宽必须是大于 0 的数字。 ======"
-        exit 1
+        echo "====== [错误] RTT、带宽须大于0且不超过100000，最多3位小数。 ======"
+        return 1
     fi
 
-    # --- 步骤 4: 分别计算下载和上传的BDP (带宽延迟积) ---
-    # 下载BDP (接收方向)
-    download_bw_bytes_per_sec=$(awk "BEGIN{printf \"%.0f\", ${download_bw} * 1000 * 1000 / 8}")
-    download_bdp_bytes=$(awk "BEGIN{printf \"%.0f\", ${download_bw_bytes_per_sec} * ${rtt} / 1000}")
-    
-    # 上传BDP (发送方向)  
-    upload_bw_bytes_per_sec=$(awk "BEGIN{printf \"%.0f\", ${upload_bw} * 1000 * 1000 / 8}")
-    upload_bdp_bytes=$(awk "BEGIN{printf \"%.0f\", ${upload_bw_bytes_per_sec} * ${rtt} / 1000}")
-    
-    echo "--> 下载方向BDP: ${download_bdp_bytes} 字节 (约 $(awk "BEGIN{printf \"%.2f\", ${download_bdp_bytes}/1024/1024}") MB)"
-    echo "    上传方向BDP: ${upload_bdp_bytes} 字节 (约 $(awk "BEGIN{printf \"%.2f\", ${upload_bdp_bytes}/1024/1024}") MB)"
-
-    # --- 步骤 5: 带宽优化策略 ---
-    # 目标：下载优先，上传确保能跑满100M即可
-    # 策略：接收缓冲区优化，发送缓冲区保守优化
-
-    # 下载优化：接收缓冲区 = 3倍下载BDP（确保下载性能）
-    recv_multiplier=3
-    # 上传优化：发送缓冲区 = 2倍上传BDP（确保上传速率，避免bufferbloat）
-    send_multiplier=2
-    
-    # 计算目标缓冲区大小
-    target_recv_buffer_bytes=$(awk "BEGIN{printf \"%.0f\", ${download_bdp_bytes} * ${recv_multiplier}}")
-    target_send_buffer_bytes=$(awk "BEGIN{printf \"%.0f\", ${upload_bdp_bytes} * ${send_multiplier}}")
-    
-    # 设置合理的最小值（基于实际带宽）
-    min_recv_buffer_bytes=$((32 * 1024 * 1024))  # 下载最小32MB
-    min_send_buffer_bytes=$((16 * 1024 * 1024))   # 上传最小16MB
-
-    # 确保不小于最小值
-    if [ "$target_recv_buffer_bytes" -lt "$min_recv_buffer_bytes" ]; then
-        echo "    [信息] 接收缓冲区提升至最小值: ${min_recv_buffer_bytes} 字节"
-        target_recv_buffer_bytes=$min_recv_buffer_bytes
-    fi
-    
-    if [ "$target_send_buffer_bytes" -lt "$min_send_buffer_bytes" ]; then
-        echo "    [信息] 发送缓冲区提升至最小值: ${min_send_buffer_bytes} 字节"
-        target_send_buffer_bytes=$min_send_buffer_bytes
+    if ! awk -v rtt="$rtt" 'BEGIN {exit !(rtt <= 5000)}'; then
+        echo "[错误] RTT不能超过5000ms。"
+        return 1
     fi
 
-    # 根据网络情况计算 tcp_adv_win_scale
-    if awk "BEGIN {exit !(${download_bw} == ${upload_bw})}"; then
-        echo "    [信息] 上下行带宽对等，tcp_adv_win_scale 设为: 1"
-        tcp_adv_win_scale=1
-    else
-        echo "    [信息] 不对称带宽，tcp_adv_win_scale 设为: 2"
-        tcp_adv_win_scale=2
+    # --- 步骤 4: 计算客户端链路BDP ---
+    download_bdp_bytes=$(awk -v bw="$download_bw" -v rtt="$rtt" 'BEGIN {printf "%.0f", bw * rtt * 125}')
+    upload_bdp_bytes=$(awk -v bw="$upload_bw" -v rtt="$rtt" 'BEGIN {printf "%.0f", bw * rtt * 125}')
+    echo "--> 下行BDP=${download_bdp_bytes}字节，上行BDP=${upload_bdp_bytes}字节。"
+
+    # --- 步骤 5: 计算收发缓冲上限 ---
+    # 代理有客户端、目标站两侧连接，下载同时涉及服务器接收与发送。
+    # 这里只输入客户端RTT；目标站一侧BDP更大时需另行评估。
+    target_buffer_bytes=$(awk -v down="$download_bw" -v up="$upload_bw" -v rtt="$rtt" '
+        BEGIN {bw = down > up ? down : up; printf "%.0f", bw * rtt * 125 * 3}')
+    rounding_step=4194304
+    target_buffer_bytes=$(((target_buffer_bytes + rounding_step - 1) / rounding_step * rounding_step))
+    # Linux socket缓冲存在加倍记账；这是整数表示保护，不是物理内存限额。
+    if [ "$target_buffer_bytes" -gt 1073741823 ]; then
+        echo "[错误] 三倍BDP超过socket缓冲安全表示范围，请核对带宽与RTT。"
+        return 1
     fi
+    final_recv_buffer_bytes=$target_buffer_bytes
+    final_send_buffer_bytes=$target_buffer_bytes
+    [ "$final_recv_buffer_bytes" -ge 33554432 ] || final_recv_buffer_bytes=33554432
+    [ "$final_send_buffer_bytes" -ge 16777216 ] || final_send_buffer_bytes=16777216
+    echo "--> 接收上限=$((final_recv_buffer_bytes / 1048576))MiB，发送上限=$((final_send_buffer_bytes / 1048576))MiB。"
+    echo "    默认接收16MiB、发送2MiB；上限不是预分配，也不等于目标排队长度。"
 
-    # 内存限制检查：总缓冲区不超过60%系统内存（下载优先策略）
-    max_total_buffer_bytes=$((mem_kb * 1024 * 3 / 5))
-    total_target_bytes=$((target_recv_buffer_bytes + target_send_buffer_bytes))
-    
-    if [ "$total_target_bytes" -gt "$max_total_buffer_bytes" ]; then
-        echo "    [警告] 总缓冲区大小超限，按比例缩减..."
-        # 优先保证下载性能：接收缓冲区占总限制的80%，发送缓冲区占20%
-        final_recv_buffer_bytes=$((max_total_buffer_bytes * 4 / 5))
-        final_send_buffer_bytes=$((max_total_buffer_bytes * 1 / 5))
-        echo "           [优化] 接收=${final_recv_buffer_bytes}字节, 发送=${final_send_buffer_bytes}字节"
-    else
-        final_recv_buffer_bytes=$target_recv_buffer_bytes
-        final_send_buffer_bytes=$target_send_buffer_bytes
-    fi
-    
-    # 兼容性：设置全局最大值为接收缓冲区大小（因为下载是主要需求）
-    final_buffer_bytes=$final_recv_buffer_bytes
-
-    echo "--> [优化] 接收缓冲区(下载): ${final_recv_buffer_bytes} 字节 (约 $(awk "BEGIN{printf \"%.1f\", ${final_recv_buffer_bytes}/1024/1024}") MB)"
-    echo "    [优化] 发送缓冲区(上传): ${final_send_buffer_bytes} 字节 (约 $(awk "BEGIN{printf \"%.1f\", ${final_send_buffer_bytes}/1024/1024}") MB)"
-    echo "    [带宽分析] 下载=${download_bw}Mbps→缓冲区倍数=$(awk "BEGIN{printf \"%.1f\", ${final_recv_buffer_bytes}/${download_bdp_bytes}}"), 上传=${upload_bw}Mbps→缓冲区倍数=$(awk "BEGIN{printf \"%.1f\", ${final_send_buffer_bytes}/${upload_bdp_bytes}}")"
-
-    # --- 步骤 6: 计算UDP总缓冲区大小 ---
-    # net.ipv4.udp_mem 的单位是内存页 (page)，通常为4KB。
-    # 我们设置max值为单个连接最大缓冲区的4倍，以应对多个并发连接。
-    udp_mem_max_pages=$(( final_buffer_bytes * 4 / 4096 ))
-    udp_mem_pressure_pages=$(( udp_mem_max_pages * 3 / 4 ))
-    udp_mem_min_pages=$(( udp_mem_max_pages / 2 ))
+    # --- 步骤 6: TCP/UDP总额度 ---
+    # 延续旧版UDP四倍接收上限的容量思路；不是由BDP推导出的并发最优值。
+    # TCP采用八倍较大缓冲上限，至少1GiB；UDP至少256MiB。不按内存比例截断。
+    tcp_budget_bytes=$((final_recv_buffer_bytes * 8))
+    [ "$tcp_budget_bytes" -ge 1073741824 ] || tcp_budget_bytes=1073741824
+    udp_budget_bytes=$((final_recv_buffer_bytes * 4))
+    [ "$udp_budget_bytes" -ge 268435456 ] || udp_budget_bytes=268435456
+    tcp_mem_max_pages=$((tcp_budget_bytes / page_size))
+    tcp_mem_min_pages=$((tcp_mem_max_pages / 2))
+    tcp_mem_pressure_pages=$((tcp_mem_max_pages * 3 / 4))
+    udp_mem_pages=$((udp_budget_bytes / page_size))
+    echo "--> TCP总额度=$((tcp_budget_bytes / 1048576))MiB，UDP接收总额度=$((udp_budget_bytes / 1048576))MiB。"
+    echo "    总额度为并发容量起点，需结合高峰占用、丢包和满载延迟验证。"
 
     # --- 步骤 7: 根据内存大小设置dirty_bytes参数 ---
-    echo "--> 正在根据系统内存计算最佳的脏页参数..."
-    
+    echo "--> 正在根据系统内存计算脏页回写参数..."
+
     # 512MB内存档位：保守设置，避免内存压力
     if [ "$mem_mb" -le 512 ]; then
         dirty_bytes=16777216        # 16MB
@@ -158,74 +143,165 @@ optimize_kernel_parameters() {
         echo "    [内存档位] 512MB及以下: 脏页=${dirty_bytes}字节(16MB), 后台=${dirty_background_bytes}字节(4MB)"
     # 512MB-1024MB档位：适中设置，兼顾性能和稳定性
     elif [ "$mem_mb" -le 1024 ]; then
-        dirty_bytes=31457280        # 30MB  
+        dirty_bytes=31457280        # 30MB
         dirty_background_bytes=6291456   # 6MB
         echo "    [内存档位] 512MB-1024MB: 脏页=${dirty_bytes}字节(30MB), 后台=${dirty_background_bytes}字节(6MB)"
-    # 1GB以上内存档位：激进设置，最大化网络性能，减少磁盘I/O干扰
+    # 1GB以上沿用64MiB/16MiB脏页阈值，实际效果取决于存储与写入负载
     else
         dirty_bytes=67108864        # 64MB
         dirty_background_bytes=16777216  # 16MB
-        echo "    [内存档位] 1024MB以上: 脏页=${dirty_bytes}字节(64MB), 后台=${dirty_background_bytes}字节(16MB) - 网络优先策略"
+        echo "    [内存档位] 1024MB以上: 脏页=${dirty_bytes}字节(64MB), 后台=${dirty_background_bytes}字节(16MB) - 字节阈值策略"
     fi
 
-    # --- 步骤 8: 清理旧配置块 (修复重复注释问题) ---
-    echo "--> 正在清理 /etc/sysctl.conf 中的旧配置块..."
-    
-    # 使用临时文件来安全地处理配置文件
-    temp_file=$(mktemp)
-    
-    # 检查是否存在脚本生成的配置块标记
-    if grep -q "=== 内核参数优化 ===" /etc/sysctl.conf; then
-        echo "    [检测] 发现之前由脚本生成的配置块，正在删除..."
-        # 删除从开始标记到结束标记之间的所有内容（包括边界）
-        awk '
-        /^# === 内核参数优化 === *$/ {
-            in_block = 1
-            next
-        }
-        /^# === 参数优化 end === *$/ && in_block {
-            in_block = 0
-            next
-        }
-        !in_block {print}
-        ' /etc/sysctl.conf > "$temp_file"
-    else
-        echo "    [检测] 未发现之前的脚本配置块，进行常规清理..."
-        # 如果没有脚本标记，则进行常规清理
-        cp /etc/sysctl.conf "$temp_file"
+    # --- 步骤 8: 备份、校验并清理完整旧配置块 ---
+    work_dir=$(mktemp -d /etc/.network-tuning.XXXXXX)
+    backup_file=""
+    runtime_backup=""
+    applying=0
+    installing=0
+    committed=0
+    cleanup() {
+        status=$?
+        trap - EXIT HUP INT TERM
+        if [ "$applying" -eq 1 ] && [ "$committed" -eq 0 ]; then
+            echo "[错误] 应用未完成，正在恢复修改前的运行参数。"
+            if ! sysctl -p "$runtime_backup"; then
+                echo "[错误] 部分运行值恢复失败，请检查：$runtime_backup"
+            fi
+            # 也覆盖完成原子替换、尚未标记提交时收到信号的情况。
+            if [ "$installing" -eq 1 ]; then
+                if [ -n "$backup_file" ]; then
+                    if ! { cp -p -- "$backup_file" "$work_dir/restore" &&
+                           mv -f -- "$work_dir/restore" /etc/sysctl.conf; }; then
+                        echo "[错误] 配置恢复失败，请从 $backup_file 手动恢复。"
+                    fi
+                elif ! rm -f -- /etc/sysctl.conf; then
+                    echo "[错误] 无法删除本次新建的 /etc/sysctl.conf。"
+                fi
+            fi
+        fi
+        rm -rf -- "$work_dir"
+        exit "$status"
+    }
+    trap cleanup EXIT
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+
+    config=/etc/sysctl.conf
+    if [ -L "$config" ]; then
+        echo "[错误] /etc/sysctl.conf 是符号链接，请先确认其配置管理方式。"
+        return 1
     fi
-    
-    # 额外清理：删除可能残留的单独参数行（防止之前版本遗留的配置）
-    managed_keys=(
-        "net.ipv4.tcp_congestion_control" "net.core.default_qdisc" "net.ipv4.tcp_moderate_rcvbuf"
-        "net.core.rmem_max" "net.core.wmem_max" "net.core.rmem_default" "net.core.wmem_default"
-        "net.ipv4.tcp_rmem" "net.ipv4.tcp_wmem" "net.ipv4.tcp_window_scaling" "net.ipv4.tcp_timestamps"
-        "net.ipv4.tcp_sack" "net.ipv4.tcp_slow_start_after_idle" "net.ipv4.tcp_mtu_probing"
-        "net.ipv4.tcp_notsent_lowat" "net.ipv4.tcp_adv_win_scale" "net.ipv4.tcp_max_orphans" "net.ipv4.tcp_mem"
-        "net.ipv4.tcp_retries1" "net.ipv4.tcp_retries2" "net.ipv4.tcp_frto"
-        "net.ipv4.udp_mem" "net.core.somaxconn" "net.core.netdev_max_backlog" "net.ipv4.tcp_tw_reuse"
-        "net.ipv4.tcp_max_tw_buckets" "net.ipv4.tcp_fin_timeout" "net.ipv4.tcp_fastopen" "net.ipv4.tcp_max_syn_backlog"
-        "net.ipv4.tcp_keepalive_time" "net.ipv4.tcp_keepalive_intvl" "net.ipv4.tcp_keepalive_probes" "net.ipv4.ip_local_port_range"
-        "vm.swappiness" "vm.overcommit_memory" "vm.overcommit_ratio" "net.ipv4.ip_forward" "fs.inotify.max_user_watches"
-        "fs.file-max" "fs.nr_open" "vm.dirty_bytes" "vm.dirty_background_bytes" "vm.dirty_ratio" "vm.dirty_background_ratio"
-        "vm.dirty_expire_centisecs" "vm.dirty_writeback_centisecs"
-        "net.ipv4.icmp_echo_ignore_broadcasts" "net.ipv4.icmp_ignore_bogus_error_responses"
-        "net.ipv4.conf.all.rp_filter" "net.ipv4.conf.default.rp_filter"
-    )
-    
-    # 从临时文件中删除可能残留的单独参数行
-    for key in "${managed_keys[@]}"; do
-        sed -i -E "/^\s*#?\s*${key//./\\.}\s*=/d" "$temp_file"
-    done
-    
-    # 将清理后的内容写回原文件
-    mv "$temp_file" /etc/sysctl.conf
+    if [ -e "$config" ]; then
+        backup_file=$(mktemp /etc/sysctl.conf.bak.XXXXXX)
+        cp -p -- "$config" "$backup_file"
+        cp -p -- "$config" "$work_dir/original"
+    else
+        : > "$work_dir/original"
+        chmod 644 "$work_dir/original"
+    fi
+
+    # 只移除有完整边界的旧脚本块，保留用户在块外的设置及注释。
+    if ! awk '
+        /^# === 内核参数优化 === *$/ {
+            if (inside) exit 2; inside=1; next
+        }
+        /^# === 参数优化 end === *$/ {
+            if (!inside) exit 2; inside=0; next
+        }
+        !inside {print}
+        END {if (inside) exit 2}
+    ' "$work_dir/original" > "$work_dir/base"; then
+        echo "[错误] 旧配置块标记不完整，未修改配置。"
+        return 1
+    fi
+    if grep -q '^# === 内核参数优化 ===' "$work_dir/original"; then
+        echo "[提示] 将替换旧脚本块；本次管理的参数按新策略应用。"
+        echo "       未再配置的旧参数不会自动恢复，需安排维护重启并排查其他配置覆盖。"
+    fi
+
+    : > "$work_dir/settings"
+    runtime_backup=$(mktemp /etc/sysctl.runtime.bak.XXXXXX)
+    : > "$runtime_backup"
+    # IP转发最先处理；切换它可能重置IPv4接口参数，回滚时一并恢复。
+    old_forward=$(sysctl -n net.ipv4.ip_forward)
+    printf 'net.ipv4.ip_forward = %s\n' "$old_forward" >> "$runtime_backup"
+    if [ "$old_forward" != 1 ]; then
+        for path in /proc/sys/net/ipv4/conf/*/*; do
+            # 使用斜杠键名，避免把eth0.100等接口名里的点误当作目录。
+            key=${path#/proc/sys/}
+            old_value=$(cat "$path")
+            printf '%s = %s\n' "$key" "$old_value" >> "$runtime_backup"
+        done
+    fi
+    printf '\n# === 内核参数优化 ===\n# 保留IPv4转发，先于接口参数应用。\nnet.ipv4.ip_forward = 1\n' >> "$work_dir/settings"
+
+    add_setting() {
+        local key=$1 new_value=$2 comment=$3 old_value old_ratio ratio_key
+        if ! old_value=$(sysctl -n "$key" 2>/dev/null); then
+            echo "[提示] 内核不支持 $key，跳过。"
+            return 0
+        fi
+        case "$key" in
+            vm.dirty_bytes|vm.dirty_background_bytes)
+                ratio_key=${key%_bytes}_ratio
+                old_ratio=$(sysctl -n "$ratio_key")
+                # bytes=0可能被内核拒绝；用ratio写入来恢复比例模式。
+                # dirty_ratio为相同值时未必清除bytes，先写另一值确保触发切换。
+                printf '%s = 1\n%s = %s\n' "$ratio_key" "$ratio_key" "$old_ratio" >> "$runtime_backup"
+                if [ "$old_value" -gt 0 ]; then
+                    printf '%s = %s\n' "$key" "$old_value" >> "$runtime_backup"
+                fi
+                ;;
+            *) printf '%s = %s\n' "$key" "$old_value" >> "$runtime_backup" ;;
+        esac
+        printf '# %s\n%s = %s\n' "$comment" "$key" "$new_value" >> "$work_dir/settings"
+    }
+
+    raise_setting() {
+        local key=$1 target=$2 comment=$3 current
+        if ! current=$(sysctl -n "$key" 2>/dev/null); then
+            echo "[提示] 内核不支持 $key，跳过。"
+            return 0
+        fi
+        if [[ ! "$current" =~ ^[0-9]+$ ]]; then
+            echo "[错误] 无法解析 $key。"
+            return 1
+        fi
+        [ "$target" -ge "$current" ] || target=$current
+        add_setting "$key" "$target" "$comment"
+    }
+
+    # 可选功能先检测；不支持的键在生成配置后跳过。
+    available=$(sysctl -n net.ipv4.tcp_available_congestion_control)
+    if [[ " $available " != *" bbr "* ]] && command -v modprobe >/dev/null 2>&1; then
+        modprobe tcp_bbr 2>/dev/null || true
+        available=$(sysctl -n net.ipv4.tcp_available_congestion_control)
+    fi
+    congestion_control=$(sysctl -n net.ipv4.tcp_congestion_control)
+    if [[ " $available " == *" bbr "* ]]; then
+        congestion_control=bbr
+    else
+        echo "[提示] BBR不可用，保留当前拥塞控制。"
+    fi
+    fq_available=0
+    if [ -d /sys/module/sch_fq ] || { command -v modprobe >/dev/null 2>&1 && modprobe sch_fq 2>/dev/null; }; then
+        fq_available=1
+    else
+        echo "[提示] 未确认fq可用，不修改default_qdisc。"
+    fi
+    tw_reuse=$(sysctl -n net.ipv4.tcp_tw_reuse)
+    swappiness=5
+    if awk 'NR > 1 && $1 ~ /zram/ {found=1} END {exit !found}' /proc/swaps ||
+       { [ -r /sys/module/zswap/parameters/enabled ] && grep -Eq '^[Yy1]$' /sys/module/zswap/parameters/enabled; }; then
+        swappiness=$(sysctl -n vm.swappiness)
+    fi
 
     # --- 步骤 9: 构建新的配置块 ---
     # 使用heredoc来创建配置块，包含逐行注释，更清晰易读
-    read -r -d '' sysctl_config_block << EOM
+    cat > "$work_dir/requested" << EOM
 
-# === 内核参数优化 ===
 # == 由高级网络优化脚本于 $(date) 生成
 # == 优化目标: 最大化网络吞吐量 (TCP + UDP)
 # == 适用服务: Sing-box, Xray (VLESS/VMess), Hysteria2 (QUIC) 等
@@ -236,82 +312,88 @@ optimize_kernel_parameters() {
 
 # ---- A. 核心拥塞控制与队列管理 (优化BBR性能) ----
 # 设置默认的TCP拥塞控制算法为BBR。
-net.ipv4.tcp_congestion_control = bbr
+net.ipv4.tcp_congestion_control = ${congestion_control}
 # 设置默认的网络包调度算法为FQ。
 net.core.default_qdisc = fq
 # 启用 TCP 接收缓冲区自动调整，适配不同连接的带宽延迟积。
 net.ipv4.tcp_moderate_rcvbuf = 1
 
 # ---- B. 全局套接字缓冲区核心参数 ----
-# 优化：下载优先，上传够用即可
+# 收发都覆盖较大方向BDP，兼顾代理两侧连接。
 net.core.rmem_max = ${final_recv_buffer_bytes}
 net.core.wmem_max = ${final_send_buffer_bytes}
-# 默认值：下载默认更大，上传适中
+# 默认值：接收16MiB、发送2MiB，应用可主动覆盖
 net.core.rmem_default = 16777216
 net.core.wmem_default = 2097152
 
 # ---- C. TCP 专用行为调优 ----
-# 优化：接收缓冲区(下载)，发送缓冲区(上传)
+# 直接覆盖TCP最小/默认值；最大值按链路容量计算，不迁移旧值。
 net.ipv4.tcp_rmem = 16384 1048576 ${final_recv_buffer_bytes}
 net.ipv4.tcp_wmem = 8192 131072 ${final_send_buffer_bytes}
 # 启用TCP窗口缩放，高带宽必须。
 net.ipv4.tcp_window_scaling = 1
-# 启用TCP时间戳，BBR必需。
+# 启用TCP时间戳，用于RTT测量和PAWS。
 net.ipv4.tcp_timestamps = 1
 # 启用SACK，快速丢包恢复。
 net.ipv4.tcp_sack = 1
-# 禁用空闲慢启动，保持BBR控制。
+# 沿用旧版空闲后保留拥塞窗口策略；各拥塞控制算法仍有独立行为。
 net.ipv4.tcp_slow_start_after_idle = 0
 # 保守MTU探测，稳定性优先。
 net.ipv4.tcp_mtu_probing = 1
-# 上传优化：较小的发送队列下限，避免积压
-net.ipv4.tcp_notsent_lowat = 32768
-# 接收窗口分配优化，下载优先为2，对称网络为1。
-net.ipv4.tcp_adv_win_scale = ${tcp_adv_win_scale}
+# 不设全局小阈值限制应用写入；应用可单独设置TCP_NOTSENT_LOWAT。
+net.ipv4.tcp_notsent_lowat = 4294967295
+# Linux 6.1窗口开销比例采用其基线1，不由上下行是否对称决定。
+net.ipv4.tcp_adv_win_scale = 1
+# DSACK辅助识别伪重传；RACK与TLP用于丢包及尾丢包恢复。
+net.ipv4.tcp_dsack = 1
+net.ipv4.tcp_recovery = 1
+net.ipv4.tcp_early_retrans = 3
+# 突发建连时允许重试，不因监听队列溢出主动复位。
+net.ipv4.tcp_abort_on_overflow = 0
+net.ipv4.tcp_syncookies = 1
 # 适中的孤儿连接数
 net.ipv4.tcp_max_orphans = 32768
-# 内存分配：更多给接收
-net.ipv4.tcp_mem = 524288 1048576 2097152
-# 保守重传策略，避免上传抖动
+# TCP全部socket的页数阈值：低水位、压力、最大值。
+net.ipv4.tcp_mem = ${tcp_mem_min_pages} ${tcp_mem_pressure_pages} ${tcp_mem_max_pages}
+# 保留链路短暂中断时的重试容忍时间；不以缩短超时减少重传计数。
 net.ipv4.tcp_retries1 = 3
-net.ipv4.tcp_retries2 = 10
-# 适度丢包检测
-net.ipv4.tcp_frto = 1
+net.ipv4.tcp_retries2 = 15
+# 启用F-RTO处理伪超时。
+net.ipv4.tcp_frto = 2
 # ---- D. UDP/QUIC 性能优化 (针对 Hysteria2) ----
 # 设置系统所有UDP套接字可以占用的内存大小(单位: page)。
-net.ipv4.udp_mem = ${udp_mem_min_pages} ${udp_mem_pressure_pages} ${udp_mem_max_pages}
+# Linux 6.1接收路径的第一项是关键额度；三项一致，不套用TCP压力比例。
+net.ipv4.udp_mem = ${udp_mem_pages} ${udp_mem_pages} ${udp_mem_pages}
 
 # ---- E. 连接管理与系统资源 (并发优化) ----
 # 增大系统级监听队列的最大长度。
 net.core.somaxconn = 262144
-# 增大网卡接收数据包的队列最大长度。
-net.core.netdev_max_backlog = 1048576
-# 开启TIME_WAIT状态连接的快速回收和重用。
-net.ipv4.tcp_tw_reuse = 1
-# 减少系统中TIME_WAIT状态连接的最大数量，更快释放资源。
-net.ipv4.tcp_max_tw_buckets = 32768
-# 减少FIN_WAIT_2状态的超时时间。
-net.ipv4.tcp_fin_timeout = 10
+# 接收backlog取16384包作为突发基线，需结合softnet丢包和延迟验证。
+net.core.netdev_max_backlog = 16384
+# 保留当前安全复用策略，不把复用等同于强制回收。
+net.ipv4.tcp_tw_reuse = ${tw_reuse}
+# TIME_WAIT容量基线，写入前只提高已有值，避免提前销毁状态。
+net.ipv4.tcp_max_tw_buckets = 262144
+# 无应用持有的FIN_WAIT_2连接保留60秒，不控制TIME_WAIT。
+net.ipv4.tcp_fin_timeout = 60
 # 开启TCP Fast Open (TFO)。
 net.ipv4.tcp_fastopen = 3
 # 增大SYN队列的最大长度。
 net.ipv4.tcp_max_syn_backlog = 65536
-# 设置：减少保活探测间隔，更快检测死连接
+# 仅对启用SO_KEEPALIVE的连接有效，给短暂链路波动留出余量。
 net.ipv4.tcp_keepalive_time = 600
-net.ipv4.tcp_keepalive_intvl = 10
-net.ipv4.tcp_keepalive_probes = 3
-# 设置：优化端口重用
-net.ipv4.ip_local_port_range = 1024 65535
+net.ipv4.tcp_keepalive_intvl = 30
+net.ipv4.tcp_keepalive_probes = 5
+# 临时端口范围不改动，避免占用服务或管理工具预留端口。
 # 开启IP转发。
-net.ipv4.ip_forward = 1
+# ip_forward已在其他IPv4参数之前应用。
 
 # ---- F. 内存与系统相关 (内存策略) ----
-# 降低内核使用Swap分区的倾向。
-vm.swappiness = 5
+# 磁盘swap沿用5；检测到zram/zswap时保留其现有策略。
+vm.swappiness = ${swappiness}
 # 允许内核"过度承诺"内存。
 vm.overcommit_memory = 1
-# 设置：允许更大的过度承诺比例
-vm.overcommit_ratio = 100
+# 模式1不设置仅模式2有效的overcommit_ratio。
 # 增加用户可以监视的文件/目录数量。
 fs.inotify.max_user_watches = 65536
 # 增加文件描述符限制
@@ -325,10 +407,8 @@ fs.nr_open = 524288
 vm.dirty_bytes = ${dirty_bytes}
 # 后台异步刷脏页触发阈值：$(awk "BEGIN{printf \"%.0f\", ${dirty_background_bytes}/1024/1024}")MB
 vm.dirty_background_bytes = ${dirty_background_bytes}
-# 禁用百分比模式，避免与字节模式冲突
-vm.dirty_ratio = 0
-vm.dirty_background_ratio = 0
-# 脏页最短留存时间 = 30 秒，然后可被刷写
+# bytes与ratio互斥，不再随后写ratio，以免清除bytes阈值。
+# 脏页老化30秒后可参与周期回写，阈值触发的回写不必等30秒。
 vm.dirty_expire_centisecs = 3000
 # 后台写线程间隔 = 5 秒
 vm.dirty_writeback_centisecs = 500
@@ -336,37 +416,79 @@ vm.dirty_writeback_centisecs = 500
 # ---- H. 网络安全加固 ----
 # 忽略ICMP广播请求。
 net.ipv4.icmp_echo_ignore_broadcasts = 1
-# 忽略格式错误的ICMP响应。
+# 抑制无效ICMP错误响应产生的告警。
 net.ipv4.icmp_ignore_bogus_error_responses = 1
-# 开启反向路径过滤，防IP欺骗。
-net.ipv4.conf.all.rp_filter = 1
-net.ipv4.conf.default.rp_filter = 1
+# 固定宽松反向路径过滤，允许来源可达但收发接口不同的非对称路径。
+net.ipv4.conf.all.rp_filter = 2
+net.ipv4.conf.default.rp_filter = 2
 
 # === 参数优化 end ===
 EOM
 
-    # --- 步骤 10: 将新配置追加到文件 ---
-    echo "--> 正在将新的优化配置追加到 /etc/sysctl.conf..."
-    echo "${sysctl_config_block}" >> /etc/sysctl.conf
-
-    # --- 步骤 11: 应用新的内核参数 ---
-    echo "--> 正在应用新的内核参数..."
-    # 执行sysctl -p并显示其输出，以便用户确认
-    if sysctl -p /etc/sysctl.conf; then
-        echo "====== 内核参数优化成功并已生效！ ======"
-        echo "====== 配置信息已记录在配置块的注释中，便于后续维护。 ======"
-        echo "====== 脏页参数已根据${mem_mb}MB内存进行优化配置。 ======"
-        echo "====== 为确保所有网络相关设置完全应用，建议您重启服务器。 ======"
-    else
-        echo "====== [错误] 应用内核参数时出错，请检查 /etc/sysctl.conf 的语法。 ======"
-        if [ -n "$backup_file" ] && [ -f "$backup_file" ]; then
-            echo "====== 正在从备份恢复 /etc/sysctl.conf: $backup_file ======"
-            cp "$backup_file" /etc/sysctl.conf
-            sysctl -p /etc/sysctl.conf
+    # --- 步骤 10: 检查支持情况、备份运行值并生成最终配置 ---
+    while IFS= read -r line; do
+        case "$line" in
+            ''|\#*) printf '%s\n' "$line" >> "$work_dir/settings"; continue ;;
+        esac
+        key=${line%% = *}
+        value=${line#* = }
+        if [ "$key" = net.core.default_qdisc ] && [ "$fq_available" -eq 0 ]; then
+            continue
         fi
-        return 1
-    fi
-}
+        case "$key" in
+            fs.file-max|fs.nr_open|fs.inotify.max_user_watches|net.ipv4.tcp_max_orphans|net.ipv4.tcp_max_tw_buckets)
+                raise_setting "$key" "$value" "资源额度仅提高，不压低当前上限。" ;;
+            *) add_setting "$key" "$value" "本次脚本配置。" ;;
+        esac
+    done < "$work_dir/requested"
 
-# 运行主函数
-optimize_kernel_parameters
+    # 本次配置末尾原本就会覆盖同名键；将前面的重复项注释留存，明确生效来源。
+    # 不清理未管理的参数，也不删除用户原有注释。斜杠/点号形式按sysctl规则归一化。
+    awk '
+        function config_key(line, pos, key) {
+            sub(/#.*/, "", line)
+            pos=index(line, "=")
+            if (!pos) return ""
+            key=substr(line, 1, pos-1)
+            gsub(/[[:space:]]/, "", key)
+            sub(/^-/, "", key)
+            if (index(key, "/") && (!index(key, ".") || index(key, "/") < index(key, "."))) {
+                # 先用临时字符保存接口名中的点，再交换两种分隔符。
+                gsub(/\./, "\034", key)
+                gsub(/\//, ".", key)
+                gsub(/\034/, "/", key)
+            }
+            return key
+        }
+        FNR == NR {
+            key=config_key($0)
+            if (key != "") managed[key]=1
+            next
+        }
+        {
+            key=config_key($0)
+            if (key != "" && key in managed)
+                print "# 已由下方内核参数优化块接管，原值保留: " $0
+            else
+                print
+        }
+    ' "$work_dir/settings" "$work_dir/base" > "$work_dir/deduplicated"
+    cp -p -- "$work_dir/original" "$work_dir/candidate"
+    cat "$work_dir/deduplicated" > "$work_dir/candidate"
+    cat "$work_dir/settings" >> "$work_dir/candidate"
+
+    # --- 步骤 11: 先应用本次参数，再原子保存 ---
+    echo "--> 配置备份：${backup_file:-原文件不存在}"
+    echo "--> 运行值备份：$runtime_backup"
+    applying=1
+    sysctl -p "$work_dir/settings"
+    installing=1
+    mv -f -- "$work_dir/candidate" "$config"
+    committed=1
+    echo "====== 内核参数已应用并保存 ======"
+
+)
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    optimize_kernel_parameters
+fi
